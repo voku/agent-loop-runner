@@ -15,8 +15,10 @@ use voku\AgentLoopRunner\Host\HostAdapter;
 use voku\AgentLoopRunner\Host\HostExecutionRequest;
 use voku\AgentLoopRunner\Process\EnvironmentProjector;
 use voku\AgentLoopRunner\Process\ProcessSupervisor;
+use voku\AgentLoopRunner\RunnerLayout;
 use voku\AgentLoopRunner\Runtime\AttemptStatus;
 use voku\AgentLoopRunner\Runtime\JournalProcessObserver;
+use voku\AgentLoopRunner\Runtime\RunExecutionLock;
 use voku\AgentLoopRunner\Runtime\RuntimeAttempt;
 use voku\AgentLoopRunner\Runtime\RuntimeJournal;
 use voku\AgentLoopRunner\Workspace\RunWorkspaceManager;
@@ -33,12 +35,30 @@ final readonly class ExecutionCoordinator
         private array $hosts,
         private ProcessSupervisor $supervisor,
         private DiagnosticLogStore $logs,
+        private RunnerLayout $layout,
         private CoordinatorHook $hook = new NullCoordinatorHook(),
         private int $iterationLimit = 64,
     ) {}
 
-    public function run(string $taskId): ExecutionProjection { return $this->reconcile($taskId); }
-    public function resume(string $taskId): ExecutionProjection { return $this->reconcile($taskId); }
+    public function run(string $taskId): ExecutionProjection
+    {
+        return $this->withExecutionLock($taskId);
+    }
+
+    public function resume(string $taskId): ExecutionProjection
+    {
+        return $this->withExecutionLock($taskId);
+    }
+
+    private function withExecutionLock(string $taskId): ExecutionProjection
+    {
+        $lock = RunExecutionLock::acquire($this->layout, $taskId);
+        try {
+            return $this->reconcile($taskId);
+        } finally {
+            $lock->release();
+        }
+    }
 
     private function reconcile(string $taskId): ExecutionProjection
     {
@@ -86,26 +106,26 @@ final readonly class ExecutionCoordinator
             $this->journal->save($attempt);
             try {
                 $this->hook->reached('before_process_start');
-            $result = $host->execute(new HostExecutionRequest($bundle->roleId, $workspace->lease->path, $bundle->prompt, (new EnvironmentProjector())->project($this->config->environmentAllowlist), $this->config->timeoutSeconds, new JournalProcessObserver($this->journal, $attempt)), $this->supervisor);
-            $this->hook->reached('after_process_exit');
-            if ($result->process->startedAt === '' || $result->process->finishedAt === '') throw new RuntimeException('PROCESS_FAILED: process evidence is incomplete.');
-            $logEvidence = $this->logs->persist($attempt->taskId, $attempt->runId, $attempt->stageId, $attempt->attempt, $result->process->stdout, $result->process->stderr);
-            $exitedAttempt = new RuntimeAttempt($attempt->taskId, $attempt->runId, $attempt->contractRevision, $attempt->executionPlanDigest, $attempt->stageId, $attempt->attempt, $attempt->hostId, $attempt->workspaceIdentity, $attempt->submissionId, AttemptStatus::ProcessExited, null, null, array_merge(['started_at'=>$result->process->startedAt,'exited_at'=>$result->process->finishedAt,'exit_code'=>$result->process->exitCode,'timed_out'=>$result->process->timedOut],$logEvidence));
-            $this->journal->save($exitedAttempt);
-            if ($result->process->timedOut) throw new RuntimeException('PROCESS_TIMEOUT: host process timed out.');
-            if (!$result->process->successful()) throw new RuntimeException('PROCESS_FAILED: host exited ' . $result->process->exitCode . '.');
-            $accepted = array_map(static fn (StageOutcome $outcome): string => $outcome->value, $bundle->acceptedOutcomes);
-            $marker = rtrim($bundle->completionMarker);
-            if ($accepted === [] || $marker === '') throw new RuntimeException('TRANSITION_REJECTED: bundle completion protocol is empty.');
-            $envelope = $this->parser->parse($result->process->stdout, $accepted, $marker);
-            $candidate = $this->workspaces->candidateAfter($workspace);
-            $stageResult = new StageResult($submissionId, $bundle->taskId, $bundle->runId, $bundle->contractRevision, $bundle->executionPlanDigest, $bundle->stageId, $bundle->attempt, StageOutcome::from($envelope->outcome), $candidate, $envelope->artifactReferences, $envelope->validationReferences, $envelope->summary);
-            if ($candidate === '') throw new RuntimeException('PROCESS_FAILED: process evidence is incomplete.');
-            $persisted = new RuntimeAttempt($attempt->taskId, $attempt->runId, $attempt->contractRevision, $attempt->executionPlanDigest, $attempt->stageId, $attempt->attempt, $attempt->hostId, $attempt->workspaceIdentity, $attempt->submissionId, AttemptStatus::ResultPersisted, $candidate, $stageResult->toArray(), $exitedAttempt->process);
-            $this->journal->save($persisted);
-            $this->hook->reached('after_result_persisted');
-            $this->gateway->submitStageResult($stageResult);
-            $this->hook->reached('after_submission_accepted');
+                $result = $host->execute(new HostExecutionRequest($bundle->roleId, $workspace->lease->path, $bundle->prompt, (new EnvironmentProjector())->project($this->config->environmentAllowlist), $this->config->timeoutSeconds, new JournalProcessObserver($this->journal, $attempt)), $this->supervisor);
+                $this->hook->reached('after_process_exit');
+                if ($result->process->startedAt === '' || $result->process->finishedAt === '') throw new RuntimeException('PROCESS_FAILED: process evidence is incomplete.');
+                $logEvidence = $this->logs->persist($attempt->taskId, $attempt->runId, $attempt->stageId, $attempt->attempt, $result->process->stdout, $result->process->stderr);
+                $exitedAttempt = new RuntimeAttempt($attempt->taskId, $attempt->runId, $attempt->contractRevision, $attempt->executionPlanDigest, $attempt->stageId, $attempt->attempt, $attempt->hostId, $attempt->workspaceIdentity, $attempt->submissionId, AttemptStatus::ProcessExited, null, null, array_merge(['started_at'=>$result->process->startedAt,'exited_at'=>$result->process->finishedAt,'exit_code'=>$result->process->exitCode,'timed_out'=>$result->process->timedOut],$logEvidence));
+                $this->journal->save($exitedAttempt);
+                if ($result->process->timedOut) throw new RuntimeException('PROCESS_TIMEOUT: host process timed out.');
+                if (!$result->process->successful()) throw new RuntimeException('PROCESS_FAILED: host exited ' . $result->process->exitCode . '.');
+                $accepted = array_map(static fn (StageOutcome $outcome): string => $outcome->value, $bundle->acceptedOutcomes);
+                $marker = rtrim($bundle->completionMarker);
+                if ($accepted === [] || $marker === '') throw new RuntimeException('TRANSITION_REJECTED: bundle completion protocol is empty.');
+                $envelope = $this->parser->parse($result->process->stdout, $accepted, $marker);
+                $candidate = $this->workspaces->candidateAfter($workspace);
+                $stageResult = new StageResult($submissionId, $bundle->taskId, $bundle->runId, $bundle->contractRevision, $bundle->executionPlanDigest, $bundle->stageId, $bundle->attempt, StageOutcome::from($envelope->outcome), $candidate, $envelope->artifactReferences, $envelope->validationReferences, $envelope->summary);
+                if ($candidate === '') throw new RuntimeException('PROCESS_FAILED: process evidence is incomplete.');
+                $persisted = new RuntimeAttempt($attempt->taskId, $attempt->runId, $attempt->contractRevision, $attempt->executionPlanDigest, $attempt->stageId, $attempt->attempt, $attempt->hostId, $attempt->workspaceIdentity, $attempt->submissionId, AttemptStatus::ResultPersisted, $candidate, $stageResult->toArray(), $exitedAttempt->process);
+                $this->journal->save($persisted);
+                $this->hook->reached('after_result_persisted');
+                $this->gateway->submitStageResult($stageResult);
+                $this->hook->reached('after_submission_accepted');
                 $this->journal->save($this->copy($persisted, AttemptStatus::ReconciledAccepted));
             } finally {
                 $workspace->mutationLock?->release();
