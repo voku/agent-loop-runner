@@ -13,7 +13,7 @@ agent-loop-runner
 
 The inverse dependency is forbidden. `agent-loop` remains fully usable without this package installed and continues not to invoke an LLM itself.
 
-The implementation roadmap and definition of done are tracked in [issue #1](https://github.com/voku/agent-loop-runner/issues/1). The prerequisite typed execution protocol is tracked in [`voku/agent-loop#269`](https://github.com/voku/agent-loop/issues/269).
+The implementation roadmap and definition of done are tracked in [issue #1](https://github.com/voku/agent-loop-runner/issues/1). The prerequisite typed execution protocol is published by `voku/agent-loop ^0.17.0`; this package consumes that released owner API and must not fall back to a moving `dev-main` contract.
 
 ## Commands
 
