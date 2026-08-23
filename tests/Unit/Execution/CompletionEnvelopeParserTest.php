@@ -40,6 +40,7 @@ final class CompletionEnvelopeParserTest extends TestCase
         yield 'markdown fence around marker' => ["```\n" . self::VALID . "\n```"];
         yield 'unknown outcome' => [str_replace('"PASS"', '"PWNED"', self::VALID)];
         yield 'missing outcome' => ['AGENT_LOOP_STAGE_RESULT {"summary":"x","artifact_references":[],"validation_references":[]}'];
+        yield 'duplicate outcome' => ['AGENT_LOOP_STAGE_RESULT {"outcome":"BLOCKED","outcome":"PASS","summary":"x","artifact_references":[],"validation_references":[]}'];
         yield 'extra field' => ['AGENT_LOOP_STAGE_RESULT {"outcome":"PASS","summary":"x","artifact_references":[],"validation_references":[],"extra":true}'];
         yield 'blank summary' => ['AGENT_LOOP_STAGE_RESULT {"outcome":"PASS","summary":" ","artifact_references":[],"validation_references":[]}'];
         yield 'references object' => ['AGENT_LOOP_STAGE_RESULT {"outcome":"PASS","summary":"x","artifact_references":{"a":"b"},"validation_references":[]}'];
