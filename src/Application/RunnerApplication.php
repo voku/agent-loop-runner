@@ -68,7 +68,7 @@ final readonly class RunnerApplication
     private function execute(string $task,string $command): int
     {
         $config=RunnerConfig::load($this->projectRoot);$layout=new RunnerLayout($this->projectRoot);$supervisor=new ForegroundProcessSupervisor();$git=new GitCommand($supervisor,(new EnvironmentProjector())->project(['PATH','HOME']));
-        $coordinator=new ExecutionCoordinator(new AgentLoopExecutionGateway(new ExecutionGateway($this->projectRoot)),new RuntimeJournal($layout),new RunWorkspaceManager($layout,new GitWorktreeService($git),new WorkspaceCandidateHasher($git)),new CompletionEnvelopeParser(),$config,$this->hosts($config),$supervisor,new DiagnosticLogStore($layout));
+        $coordinator=new ExecutionCoordinator(new AgentLoopExecutionGateway(new ExecutionGateway($this->projectRoot)),new RuntimeJournal($layout),new RunWorkspaceManager($layout,new GitWorktreeService($git),new WorkspaceCandidateHasher($git)),new CompletionEnvelopeParser(),$config,$this->hosts($config),$supervisor,new DiagnosticLogStore($layout),$layout);
         $projection=$command==='run'?$coordinator->run($task):$coordinator->resume($task);$this->json(['task_id'=>$projection->taskId,'complete'=>$projection->complete(),'current_stage_id'=>$projection->currentStageId]);return ExitCode::OK;
     }
 
