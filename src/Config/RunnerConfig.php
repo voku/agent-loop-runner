@@ -10,6 +10,9 @@ use voku\AgentLoopRunner\RunnerLayout;
 
 final readonly class RunnerConfig
 {
+    /** @var list<non-empty-string> */
+    private const array SUPPORTED_HOST_IDS = ['codex', 'claude', 'opencode'];
+
     /**
      * @param array<string, array{binary: non-empty-string}> $hosts
      * @param array<string, non-empty-string> $roles
@@ -23,6 +26,16 @@ final readonly class RunnerConfig
     ) {
         if ($this->timeoutSeconds < 1) {
             throw new RuntimeException('Runner timeout must be a positive integer.');
+        }
+        foreach (array_keys($this->hosts) as $hostId) {
+            if (!in_array($hostId, self::SUPPORTED_HOST_IDS, true)) {
+                throw new RuntimeException('Runner host has no built-in adapter: ' . $hostId . '.');
+            }
+        }
+        foreach ($this->roles as $roleId => $hostId) {
+            if (!isset($this->hosts[$hostId])) {
+                throw new RuntimeException('Runner role ' . $roleId . ' references unknown host ' . $hostId . '.');
+            }
         }
     }
 
@@ -132,6 +145,9 @@ final readonly class RunnerConfig
         foreach ($value as $id => $entry) {
             if (!is_string($id) || preg_match('/^[a-z][a-z0-9_-]*$/', $id) !== 1 || !is_array($entry)) {
                 throw new RuntimeException('Runner host entries require a stable lowercase id and object value.');
+            }
+            if (!in_array($id, self::SUPPORTED_HOST_IDS, true)) {
+                throw new RuntimeException('Runner host has no built-in adapter: ' . $id . '.');
             }
             $binary = $entry['binary'] ?? ($hosts[$id]['binary'] ?? null);
             if (!is_string($binary)) {
