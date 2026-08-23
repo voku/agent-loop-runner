@@ -86,6 +86,31 @@ final class HostAdapterContractTest extends TestCase
         self::assertSame(['RUNNER_TEST' => '1'], $request->environment);
         self::assertSame(30, $request->timeoutSeconds);
     }
+
+    public function testBinaryLookupUsesProjectedPathRelativeToRequestWorkingDirectory(): void
+    {
+        $root = sys_get_temp_dir() . '/agent-loop-runner-path-' . bin2hex(random_bytes(5));
+        self::assertTrue(mkdir($root . '/tools', 0o775, true));
+        $binary = $root . '/tools/codex-local';
+        file_put_contents($binary, "#!/bin/sh\nexit 0\n");
+        chmod($binary, 0o755);
+        try {
+            $supervisor = new RecordingProcessSupervisor();
+            (new CodexHostAdapter('codex-local'))->execute(new HostExecutionRequest(
+                'builder',
+                $root,
+                'prompt',
+                ['PATH' => 'tools'],
+                30,
+            ), $supervisor);
+
+            self::assertSame(realpath($binary), $supervisor->lastRequest?->argv[0] ?? null);
+        } finally {
+            unlink($binary);
+            rmdir($root . '/tools');
+            rmdir($root);
+        }
+    }
 }
 
 final class RecordingProcessSupervisor implements ProcessSupervisor
