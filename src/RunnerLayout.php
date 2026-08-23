@@ -38,6 +38,11 @@ final readonly class RunnerLayout
         return $this->root() . '/runtime/' . $this->segment($taskId) . '.json';
     }
 
+    public function executionLock(string $taskId): string
+    {
+        return $this->root() . '/runtime/' . $this->segment($taskId) . '.execution.lock';
+    }
+
     public function worktree(string $taskId, string $runId): string
     {
         return $this->root() . '/worktrees/' . $this->segment($taskId) . '-' . substr(hash('sha256', $runId), 0, 12);
