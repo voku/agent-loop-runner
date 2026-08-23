@@ -32,15 +32,18 @@ final readonly class RunnerConfig
         if (!is_file($path)) {
             return self::defaults();
         }
+
         $json = file_get_contents($path);
         if (!is_string($json)) {
             throw new RuntimeException('Unable to read runner config: ' . $path);
         }
+
         try {
             $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException $exception) {
             throw new RuntimeException('Invalid runner config JSON: ' . $exception->getMessage(), 0, $exception);
         }
+
         if (!is_array($data) || ($data['schema_version'] ?? null) !== 1) {
             throw new RuntimeException('Runner config requires schema_version 1.');
         }
@@ -52,10 +55,12 @@ final readonly class RunnerConfig
         if (!is_array($execution)) {
             throw new RuntimeException('Runner config execution must be an object.');
         }
+
         $timeout = $execution['timeout_seconds'] ?? $defaults->timeoutSeconds;
         if (!is_int($timeout) || $timeout < 1) {
             throw new RuntimeException('Runner timeout_seconds must be a positive integer.');
         }
+
         $allowlist = self::stringList(
             $execution['environment_allowlist'] ?? $defaults->environmentAllowlist,
             'execution.environment_allowlist',
@@ -93,10 +98,11 @@ final readonly class RunnerConfig
         );
     }
 
+    /** @return non-empty-string */
     public function hostForRole(string $roleId): string
     {
         $host = $this->roles[$roleId] ?? null;
-        if (!is_string($host) || $host === '') {
+        if ($host === null) {
             throw new RuntimeException('No runner host is configured for role ' . $roleId . '.');
         }
         if (!isset($this->hosts[$host])) {
@@ -106,17 +112,22 @@ final readonly class RunnerConfig
         return $host;
     }
 
+    /** @return non-empty-string */
     public function binary(string $hostId): string
     {
         $host = $this->hosts[$hostId] ?? null;
-        if (!is_array($host) || !is_string($host['binary'] ?? null) || trim($host['binary']) === '') {
+        if ($host === null) {
             throw new RuntimeException('Runner host has no binary: ' . $hostId);
         }
 
-        return trim($host['binary']);
+        return $host['binary'];
     }
 
-    /** @param mixed $value @param array<string, array{binary: non-empty-string}> $defaults @return array<string, array{binary: non-empty-string}> */
+    /**
+     * @param mixed $value
+     * @param array<string, array{binary: non-empty-string}> $defaults
+     * @return array<string, array{binary: non-empty-string}>
+     */
     private static function hosts(mixed $value, array $defaults): array
     {
         if ($value === null) {
@@ -125,22 +136,35 @@ final readonly class RunnerConfig
         if (!is_array($value)) {
             throw new RuntimeException('Runner config hosts must be an object.');
         }
+
         $hosts = $defaults;
         foreach ($value as $id => $entry) {
             if (!is_string($id) || preg_match('/^[a-z][a-z0-9_-]*$/', $id) !== 1 || !is_array($entry)) {
                 throw new RuntimeException('Runner host entries require a stable lowercase id and object value.');
             }
-            $binary = $entry['binary'] ?? ($hosts[$id]['binary'] ?? null);
-            if (!is_string($binary) || trim($binary) === '') {
+
+            $fallback = $hosts[$id]['binary'] ?? null;
+            $binary = $entry['binary'] ?? $fallback;
+            if (!is_string($binary)) {
                 throw new RuntimeException('Runner host ' . $id . ' requires a non-empty binary.');
             }
-            $hosts[$id] = ['binary' => trim($binary)];
+
+            $binary = trim($binary);
+            if ($binary === '') {
+                throw new RuntimeException('Runner host ' . $id . ' requires a non-empty binary.');
+            }
+
+            $hosts[$id] = ['binary' => $binary];
         }
 
         return $hosts;
     }
 
-    /** @param mixed $value @param array<string, non-empty-string> $defaults @return array<string, non-empty-string> */
+    /**
+     * @param mixed $value
+     * @param array<string, non-empty-string> $defaults
+     * @return array<string, non-empty-string>
+     */
     private static function roles(mixed $value, array $defaults): array
     {
         if ($value === null) {
@@ -149,12 +173,20 @@ final readonly class RunnerConfig
         if (!is_array($value)) {
             throw new RuntimeException('Runner config roles must be an object.');
         }
+
         $roles = $defaults;
         foreach ($value as $role => $host) {
-            if (!is_string($role) || trim($role) === '' || !is_string($host) || trim($host) === '') {
+            if (!is_string($role) || !is_string($host)) {
                 throw new RuntimeException('Runner role mappings require non-empty string keys and values.');
             }
-            $roles[trim($role)] = trim($host);
+
+            $role = trim($role);
+            $host = trim($host);
+            if ($role === '' || $host === '') {
+                throw new RuntimeException('Runner role mappings require non-empty string keys and values.');
+            }
+
+            $roles[$role] = $host;
         }
 
         return $roles;
@@ -166,12 +198,19 @@ final readonly class RunnerConfig
         if (!is_array($value)) {
             throw new RuntimeException('Runner config ' . $field . ' must be an array.');
         }
+
         $result = [];
         foreach ($value as $entry) {
-            if (!is_string($entry) || trim($entry) === '') {
+            if (!is_string($entry)) {
                 throw new RuntimeException('Runner config ' . $field . ' must contain non-empty strings.');
             }
-            $result[] = trim($entry);
+
+            $entry = trim($entry);
+            if ($entry === '') {
+                throw new RuntimeException('Runner config ' . $field . ' must contain non-empty strings.');
+            }
+
+            $result[] = $entry;
         }
 
         return array_values(array_unique($result));
