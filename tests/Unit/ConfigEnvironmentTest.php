@@ -29,6 +29,19 @@ final class ConfigEnvironmentTest extends TestCase
         RunnerConfig::defaults()->hostForRole('invented-role');
     }
 
+    public function testHostWithoutBuiltInAdapterFailsClosed(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('Runner host has no built-in adapter: custom');
+
+        new RunnerConfig(
+            ['custom' => ['binary' => 'custom']],
+            ['builder' => 'custom'],
+            30,
+            ['PATH'],
+        );
+    }
+
     public function testEnvironmentProjectionIncludesOnlyNamedVariables(): void
     {
         $allowed = 'AGENT_LOOP_RUNNER_ALLOWED_' . bin2hex(random_bytes(4));
