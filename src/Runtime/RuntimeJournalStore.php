@@ -6,6 +6,7 @@ namespace voku\AgentLoopRunner\Runtime;
 
 use JsonException;
 use RuntimeException;
+use Throwable;
 use voku\AgentLoopRunner\RunnerLayout;
 
 final readonly class RuntimeJournalStore
@@ -35,6 +36,7 @@ final readonly class RuntimeJournalStore
             throw new RuntimeException('Runner runtime journal must be a JSON object: ' . $path);
         }
 
+        /** @var array<string, mixed> $data */
         return RuntimeJournal::fromArray($data);
     }
 
@@ -68,14 +70,19 @@ final readonly class RuntimeJournalStore
             if (function_exists('fsync') && !fsync($handle)) {
                 throw new RuntimeException('Unable to fsync Runner runtime journal: ' . $temporary);
             }
-        } finally {
             fclose($handle);
-        }
+            $handle = null;
 
-        if (!rename($temporary, $path)) {
+            if (!rename($temporary, $path)) {
+                throw new RuntimeException('Unable to publish Runner runtime journal atomically: ' . $path);
+            }
+            @chmod($path, 0600);
+        } catch (Throwable $exception) {
+            if (is_resource($handle)) {
+                fclose($handle);
+            }
             @unlink($temporary);
-            throw new RuntimeException('Unable to publish Runner runtime journal atomically: ' . $path);
+            throw $exception;
         }
-        @chmod($path, 0600);
     }
 }
