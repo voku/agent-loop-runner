@@ -20,7 +20,9 @@ final class RuntimeReconcilerTest extends TestCase
     public function testPersistedResultIsAlwaysResubmittedInsteadOfRerunningHost(): void
     {
         $journal = self::journal(self::stageResult(), RuntimeStatus::RESULT_PERSISTED);
-        $projection = self::projection('reviewer', 1, $journal->stageResult?->candidateRevision ?? 'unexpected');
+        $stageResult = $journal->stageResult;
+        self::assertNotNull($stageResult);
+        $projection = self::projection('reviewer', 1, $stageResult->candidateRevision);
 
         self::assertSame(
             ReconciliationAction::RESUBMIT_PERSISTED_RESULT,
@@ -102,6 +104,8 @@ final class RuntimeReconcilerTest extends TestCase
 
     private static function journal(?StageResult $result, RuntimeStatus $status): RuntimeJournal
     {
+        $candidateRevision = $result === null ? str_repeat('b', 40) : $result->candidateRevision;
+
         return new RuntimeJournal(
             taskId: 'TASK-1',
             runId: 'RUN-1',
@@ -112,7 +116,7 @@ final class RuntimeReconcilerTest extends TestCase
             submissionId: 'submission-1',
             status: $status,
             baseCommit: str_repeat('b', 40),
-            candidateRevision: $result?->candidateRevision ?? str_repeat('b', 40),
+            candidateRevision: $candidateRevision,
             stageResult: $result,
         );
     }
