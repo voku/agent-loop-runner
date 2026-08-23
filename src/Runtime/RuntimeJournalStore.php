@@ -73,10 +73,12 @@ final readonly class RuntimeJournalStore
             fclose($handle);
             $handle = null;
 
+            if (!chmod($temporary, 0600)) {
+                throw new RuntimeException('Unable to protect Runner runtime journal: ' . $temporary);
+            }
             if (!rename($temporary, $path)) {
                 throw new RuntimeException('Unable to publish Runner runtime journal atomically: ' . $path);
             }
-            chmod($path, 0600);
         } catch (Throwable $exception) {
             if (is_resource($handle)) {
                 fclose($handle);
