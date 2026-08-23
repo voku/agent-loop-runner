@@ -1,0 +1,8 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+$autoload=dirname(__DIR__).'/vendor/autoload.php';
+if(!is_file($autoload)){fwrite(STDERR,"Dependencies are not installed. Run composer install.\n");exit(70);}
+require $autoload;
+$cwd=getcwd();if(!is_string($cwd)){fwrite(STDERR,"Unable to resolve current directory.\n");exit(70);}
+exit((new voku\AgentLoopRunner\Application\RunnerApplication($cwd))->run(array_slice($argv,1)));

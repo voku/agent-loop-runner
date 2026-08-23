@@ -1,0 +1,6 @@
+/vendor/
+/.build/
+/.phpunit.cache/
+/.agent-loop-runner/runtime/
+/.agent-loop-runner/worktrees/
+/.agent-loop-runner/logs/
