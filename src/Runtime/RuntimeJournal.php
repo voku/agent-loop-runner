@@ -147,19 +147,30 @@ final readonly class RuntimeJournal
             self::requiredString($value, 'candidate_revision'),
             self::stringList($value, 'artifact_references'),
             self::stringList($value, 'validation_references'),
-            self::requiredString($value, 'summary'),
+            self::string($value, 'summary'),
         );
     }
 
     /** @param array<array-key, mixed> $data */
     private static function requiredString(array $data, string $key): string
     {
-        $value = $data[$key] ?? null;
-        if (!is_string($value) || trim($value) === '') {
+        $value = self::string($data, $key);
+        if (trim($value) === '') {
             throw new InvalidArgumentException('Runtime journal requires non-empty string field ' . $key . '.');
         }
 
         return trim($value);
+    }
+
+    /** @param array<array-key, mixed> $data */
+    private static function string(array $data, string $key): string
+    {
+        $value = $data[$key] ?? null;
+        if (!is_string($value)) {
+            throw new InvalidArgumentException('Runtime journal requires string field ' . $key . '.');
+        }
+
+        return $value;
     }
 
     /** @param array<array-key, mixed> $data */
@@ -222,10 +233,14 @@ final readonly class RuntimeJournal
 
         $result = [];
         foreach ($value as $entry) {
-            if (!is_string($entry) || trim($entry) === '') {
+            if (!is_string($entry)) {
                 throw new InvalidArgumentException('Runtime journal field ' . $key . ' requires non-empty strings.');
             }
             $entry = trim($entry);
+            if ($entry === '') {
+                throw new InvalidArgumentException('Runtime journal field ' . $key . ' requires non-empty strings.');
+            }
+            /** @var non-empty-string $entry */
             $result[] = $entry;
         }
 
