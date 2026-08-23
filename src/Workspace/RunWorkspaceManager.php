@@ -176,7 +176,11 @@ final readonly class RunWorkspaceManager
         return $decoded;
     }
 
-    /** @template T @param callable(): T $callback @return T */
+    /**
+     * @template T
+     * @param callable(): T $callback
+     * @return T
+     */
     private function withLeaseLock(string $taskId, string $runId, callable $callback): mixed
     {
         $path = $this->layout->workspaceLease($taskId, $runId) . '.lock';
