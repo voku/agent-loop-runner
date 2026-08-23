@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace voku\AgentLoopRunner\Workspace;
 
+use Closure;
 use JsonException;
 use RuntimeException;
 use voku\AgentLoop\Execution\StageExecutionBundle;
@@ -178,10 +179,10 @@ final readonly class RunWorkspaceManager
 
     /**
      * @template T
-     * @param callable(): T $callback
+     * @param Closure(): T $callback
      * @return T
      */
-    private function withLeaseLock(string $taskId, string $runId, callable $callback): mixed
+    private function withLeaseLock(string $taskId, string $runId, Closure $callback): mixed
     {
         $path = $this->layout->workspaceLease($taskId, $runId) . '.lock';
         $directory = dirname($path);
