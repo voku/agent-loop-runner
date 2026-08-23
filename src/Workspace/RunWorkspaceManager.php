@@ -35,22 +35,47 @@ final readonly class RunWorkspaceManager
             throw new RuntimeException('STALE_WORKSPACE: execution stage requires an exact governed Git base commit.');
         }
 
-        $path = $this->layout->worktree($bundle->taskId, $bundle->runId);
-        $path = $this->worktrees->create($projectRoot, $path, $baseCommit);
-        $lease = new WorkspaceLease(
-            $bundle->taskId,
-            $bundle->runId,
-            $path,
-            $baseCommit,
-            $bundle->stageId,
-            $bundle->attempt,
-            $bundle->mayMutate,
-        );
+        return $this->withLeaseLock($bundle->taskId, $bundle->runId, function () use ($bundle, $projectRoot, $baseCommit): WorkspaceLease {
+            $leasePath = $this->layout->workspaceLease($bundle->taskId, $bundle->runId);
+            $existing = $this->readLease($leasePath);
+            if ($existing !== null) {
+                $expected = new WorkspaceLease(
+                    $bundle->taskId,
+                    $bundle->runId,
+                    $this->layout->worktree($bundle->taskId, $bundle->runId),
+                    $baseCommit,
+                    $bundle->stageId,
+                    $bundle->attempt,
+                    $bundle->mayMutate,
+                );
+                if ($existing !== $expected->toArray()) {
+                    throw new RuntimeException('STALE_WORKSPACE: Run workspace is leased by a different stage or attempt.');
+                }
+            }
 
-        $this->persistLease($lease);
-        $this->assertCandidate($bundle, $lease);
+            $path = $this->layout->worktree($bundle->taskId, $bundle->runId);
+            $path = $this->worktrees->create($projectRoot, $path, $baseCommit);
+            $lease = new WorkspaceLease(
+                $bundle->taskId,
+                $bundle->runId,
+                $path,
+                $baseCommit,
+                $bundle->stageId,
+                $bundle->attempt,
+                $bundle->mayMutate,
+            );
 
-        return $lease;
+            if ($existing !== null && $existing !== $lease->toArray()) {
+                throw new RuntimeException('STALE_WORKSPACE: persisted Run workspace path differs from the canonical worktree.');
+            }
+
+            $this->assertCandidate($bundle, $lease);
+            if ($existing === null) {
+                $this->persistLease($leasePath, $lease);
+            }
+
+            return $lease;
+        });
     }
 
     public function assertCandidate(StageExecutionBundle $bundle, WorkspaceLease $lease): void
@@ -65,7 +90,10 @@ final readonly class RunWorkspaceManager
             return;
         }
 
-        if (!str_starts_with($bundle->candidateRevision, 'git-worktree-v1:')) {
+        if (preg_match(
+            '/^git-worktree-v1:' . preg_quote($lease->baseCommit, '/') . ':sha256:[a-f0-9]{64}$/',
+            $bundle->candidateRevision,
+        ) !== 1) {
             throw new RuntimeException('STALE_WORKSPACE: governed candidate revision has an unsupported identity.');
         }
 
@@ -77,34 +105,28 @@ final readonly class RunWorkspaceManager
 
     public function release(WorkspaceLease $lease): void
     {
-        $path = $this->layout->workspaceLease($lease->taskId, $lease->runId);
-        $current = $this->readLease($path);
-        if ($current === null) {
-            return;
-        }
-        if ($current !== $lease->toArray()) {
-            throw new RuntimeException('STALE_WORKSPACE: refusing to release a lease owned by a different stage or attempt.');
-        }
-        if (!unlink($path) && is_file($path)) {
-            throw new RuntimeException('Unable to release Run workspace lease: ' . $path);
-        }
-    }
-
-    private function persistLease(WorkspaceLease $lease): void
-    {
-        $path = $this->layout->workspaceLease($lease->taskId, $lease->runId);
-        $directory = dirname($path);
-        if (!is_dir($directory) && !mkdir($directory, 0o775, true) && !is_dir($directory)) {
-            throw new RuntimeException('Unable to create Runner workspace lease directory: ' . $directory);
-        }
-
-        $existing = $this->readLease($path);
-        if ($existing !== null) {
-            if ($existing !== $lease->toArray()) {
-                throw new RuntimeException('STALE_WORKSPACE: Run workspace is leased by a different stage or attempt.');
+        $this->withLeaseLock($lease->taskId, $lease->runId, function () use ($lease): null {
+            $path = $this->layout->workspaceLease($lease->taskId, $lease->runId);
+            $current = $this->readLease($path);
+            if ($current === null) {
+                return null;
+            }
+            if ($current !== $lease->toArray()) {
+                throw new RuntimeException('STALE_WORKSPACE: refusing to release a lease owned by a different stage or attempt.');
+            }
+            if (!unlink($path) && is_file($path)) {
+                throw new RuntimeException('Unable to release Run workspace lease: ' . $path);
             }
 
-            return;
+            return null;
+        });
+    }
+
+    private function persistLease(string $path, WorkspaceLease $lease): void
+    {
+        $directory = dirname($path);
+        if (!is_dir($directory) && !mkdir($directory, 0700, true) && !is_dir($directory)) {
+            throw new RuntimeException('Unable to create Runner workspace lease directory: ' . $directory);
         }
 
         try {
@@ -113,22 +135,15 @@ final readonly class RunWorkspaceManager
             throw new RuntimeException('Unable to encode Run workspace lease.', 0, $exception);
         }
 
-        $handle = fopen($path, 'x+b');
-        if ($handle === false) {
-            $existing = $this->readLease($path);
-            if ($existing === $lease->toArray()) {
-                return;
-            }
-            throw new RuntimeException('STALE_WORKSPACE: concurrent Run workspace lease acquisition lost ownership.');
+        $temporary = $path . '.tmp-' . bin2hex(random_bytes(8));
+        if (file_put_contents($temporary, $json, LOCK_EX) !== strlen($json)) {
+            @unlink($temporary);
+            throw new RuntimeException('Unable to persist complete Run workspace lease: ' . $temporary);
         }
-
-        try {
-            $written = fwrite($handle, $json);
-            if ($written !== strlen($json) || !fflush($handle)) {
-                throw new RuntimeException('Unable to persist complete Run workspace lease: ' . $path);
-            }
-        } finally {
-            fclose($handle);
+        @chmod($temporary, 0600);
+        if (!rename($temporary, $path)) {
+            @unlink($temporary);
+            throw new RuntimeException('Unable to publish Run workspace lease atomically: ' . $path);
         }
     }
 
@@ -151,14 +166,37 @@ final readonly class RunWorkspaceManager
         if (!is_array($decoded) || array_is_list($decoded)) {
             throw new RuntimeException('STALE_WORKSPACE: Run workspace lease has an invalid shape.');
         }
-        foreach ($decoded as $value) {
-            if (!is_string($value) && !is_int($value) && !is_bool($value)) {
+        foreach ($decoded as $key => $value) {
+            if (!is_string($key) || (!is_string($value) && !is_int($value) && !is_bool($value))) {
                 throw new RuntimeException('STALE_WORKSPACE: Run workspace lease contains an invalid value.');
             }
         }
 
         /** @var array<string, int|string|bool> $decoded */
         return $decoded;
+    }
+
+    /** @template T @param callable(): T $callback @return T */
+    private function withLeaseLock(string $taskId, string $runId, callable $callback): mixed
+    {
+        $path = $this->layout->workspaceLease($taskId, $runId) . '.lock';
+        $directory = dirname($path);
+        if (!is_dir($directory) && !mkdir($directory, 0700, true) && !is_dir($directory)) {
+            throw new RuntimeException('Unable to create Runner workspace lock directory: ' . $directory);
+        }
+        $lock = fopen($path, 'c+');
+        if (!is_resource($lock) || !flock($lock, LOCK_EX)) {
+            if (is_resource($lock)) {
+                fclose($lock);
+            }
+            throw new RuntimeException('Unable to acquire Runner workspace lease lock: ' . $path);
+        }
+        try {
+            return $callback();
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
     }
 
     private function assertLeaseMatchesBundle(WorkspaceLease $lease, StageExecutionBundle $bundle): void
