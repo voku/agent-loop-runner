@@ -48,7 +48,7 @@ final readonly class ForegroundProcessSupervisor implements ProcessSupervisor
         $timedOut = false;
         $status = proc_get_status($process);
         $pid = $status['pid'];
-        if (!is_int($pid) || $pid < 1) {
+        if ($pid < 1) {
             $this->closeRunningProcess($process, $pipes, 0);
             throw new RuntimeException('Process started without a usable PID: ' . $request->argv[0]);
         }
