@@ -8,24 +8,39 @@ use InvalidArgumentException;
 
 final readonly class ProcessRequest
 {
+    /** @var non-empty-list<non-empty-string> */
+    public array $argv;
+
+    /** @var array<string, string> */
+    public array $environment;
+
     /**
-     * @param non-empty-list<non-empty-string> $argv
+     * @param list<string> $argv
      * @param array<string, string> $environment
      */
     public function __construct(
-        public array $argv,
+        array $argv,
         public string $workingDirectory,
         public string $stdin,
-        public array $environment,
+        array $environment,
         public int $timeoutSeconds,
     ) {
-        if ($this->argv === [] || $this->timeoutSeconds < 1) {
-            throw new InvalidArgumentException('Process request requires argv and a positive timeout.');
+        if ($argv === []) {
+            throw new InvalidArgumentException('Process request requires at least one argv entry.');
         }
-        foreach ($this->argv as $argument) {
+
+        foreach ($argv as $argument) {
             if ($argument === '') {
                 throw new InvalidArgumentException('Process argv entries must be non-empty strings.');
             }
         }
+
+        if ($this->timeoutSeconds < 1) {
+            throw new InvalidArgumentException('Process request requires a positive timeout.');
+        }
+
+        /** @var non-empty-list<non-empty-string> $argv */
+        $this->argv = $argv;
+        $this->environment = $environment;
     }
 }
