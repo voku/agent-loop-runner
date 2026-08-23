@@ -64,6 +64,7 @@ abstract readonly class AbstractCliHostAdapter implements HostAdapter
                 $this->stdin($request),
                 $request->environment,
                 $request->timeoutSeconds,
+                $request->observer,
             )),
         );
     }
