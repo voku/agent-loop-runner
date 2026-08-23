@@ -20,7 +20,7 @@ final readonly class ForegroundProcessSupervisor implements ProcessSupervisor
         $argv = $this->processGroupArgv($request->argv);
         $startedAt = (new DateTimeImmutable())->format(DateTimeInterface::ATOM);
         $started = hrtime(true);
-        $process = @proc_open(
+        $process = proc_open(
             $argv,
             [
                 0 => ['pipe', 'r'],
@@ -46,15 +46,14 @@ final readonly class ForegroundProcessSupervisor implements ProcessSupervisor
         $exitCode = -1;
         $timedOut = false;
         $status = proc_get_status($process);
-        $pid = is_int($status['pid'] ?? null) ? $status['pid'] : null;
+        $pid = $status['pid'];
 
         while (true) {
             $stdout .= (string) stream_get_contents($pipes[1]);
             $stderr .= (string) stream_get_contents($pipes[2]);
             $status = proc_get_status($process);
-            if (!($status['running'] ?? false)) {
-                $candidateExit = $status['exitcode'] ?? -1;
-                $exitCode = is_int($candidateExit) ? $candidateExit : -1;
+            if (!$status['running']) {
+                $exitCode = $status['exitcode'];
                 break;
             }
 
@@ -64,7 +63,7 @@ final readonly class ForegroundProcessSupervisor implements ProcessSupervisor
                 $this->terminate($process, $pid);
                 usleep(100_000);
                 $status = proc_get_status($process);
-                if ($status['running'] ?? false) {
+                if ($status['running']) {
                     $this->kill($process, $pid);
                 }
                 break;
@@ -77,15 +76,12 @@ final readonly class ForegroundProcessSupervisor implements ProcessSupervisor
         $stderr .= (string) stream_get_contents($pipes[2]);
         fclose($pipes[1]);
         fclose($pipes[2]);
-        $closedExit = proc_close($process);
-        if (!$timedOut && $exitCode < 0 && $closedExit >= 0) {
-            $exitCode = $closedExit;
-        }
-        if ($timedOut && $exitCode === 0) {
+        proc_close($process);
+
+        if ($timedOut) {
             $exitCode = 124;
-        }
-        if ($timedOut && $exitCode < 0) {
-            $exitCode = 124;
+        } elseif ($exitCode < 0) {
+            throw new RuntimeException('Process ended without a usable exit code: ' . $request->argv[0]);
         }
 
         return new ProcessResult(
@@ -98,7 +94,10 @@ final readonly class ForegroundProcessSupervisor implements ProcessSupervisor
         );
     }
 
-    /** @param non-empty-list<non-empty-string> $argv @return non-empty-list<non-empty-string> */
+    /**
+     * @param non-empty-list<non-empty-string> $argv
+     * @return non-empty-list<non-empty-string>
+     */
     private function processGroupArgv(array $argv): array
     {
         if (PHP_OS_FAMILY !== 'Windows') {
@@ -113,20 +112,20 @@ final readonly class ForegroundProcessSupervisor implements ProcessSupervisor
     }
 
     /** @param resource $process */
-    private function terminate($process, ?int $pid): void
+    private function terminate($process, int $pid): void
     {
-        if ($pid !== null && PHP_OS_FAMILY !== 'Windows' && function_exists('posix_kill')) {
-            @posix_kill(-$pid, defined('SIGTERM') ? SIGTERM : 15);
+        if ($pid > 0 && PHP_OS_FAMILY !== 'Windows' && function_exists('posix_kill')) {
+            posix_kill(-$pid, defined('SIGTERM') ? SIGTERM : 15);
         }
-        @proc_terminate($process, 15);
+        proc_terminate($process, 15);
     }
 
     /** @param resource $process */
-    private function kill($process, ?int $pid): void
+    private function kill($process, int $pid): void
     {
-        if ($pid !== null && PHP_OS_FAMILY !== 'Windows' && function_exists('posix_kill')) {
-            @posix_kill(-$pid, defined('SIGKILL') ? SIGKILL : 9);
+        if ($pid > 0 && PHP_OS_FAMILY !== 'Windows' && function_exists('posix_kill')) {
+            posix_kill(-$pid, defined('SIGKILL') ? SIGKILL : 9);
         }
-        @proc_terminate($process, 9);
+        proc_terminate($process, 9);
     }
 }
