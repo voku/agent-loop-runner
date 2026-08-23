@@ -76,13 +76,26 @@ final readonly class RuntimeJournalStore
             if (!rename($temporary, $path)) {
                 throw new RuntimeException('Unable to publish Runner runtime journal atomically: ' . $path);
             }
-            @chmod($path, 0600);
+            chmod($path, 0600);
         } catch (Throwable $exception) {
             if (is_resource($handle)) {
                 fclose($handle);
             }
-            @unlink($temporary);
+            if (is_file($temporary)) {
+                unlink($temporary);
+            }
             throw $exception;
+        }
+    }
+
+    public function delete(string $taskId): void
+    {
+        $path = $this->layout->runtime($taskId);
+        if (!is_file($path)) {
+            return;
+        }
+        if (!unlink($path) && is_file($path)) {
+            throw new RuntimeException('Unable to remove Runner runtime journal: ' . $path);
         }
     }
 }
