@@ -62,12 +62,12 @@ final readonly class ExecutionCoordinator
                     if ($projection->attention !== null || $projection->complete()) {
                         return $projection;
                     }
-                    $this->journals->delete($taskId);
                     continue;
                 }
                 if ($action === ReconciliationAction::WAITING_FOR_ATTENTION) {
                     if ($journal->status !== RuntimeStatus::WAITING_FOR_ATTENTION) {
-                        $this->journals->save($journal->withStatus(RuntimeStatus::WAITING_FOR_ATTENTION));
+                        $waiting = $journal->withStatus(RuntimeStatus::WAITING_FOR_ATTENTION);
+                        $this->journals->transition($journal, $waiting);
                     }
 
                     return $projection;
@@ -102,14 +102,13 @@ final readonly class ExecutionCoordinator
 
             if ($journal === null) {
                 $journal = RuntimeJournal::prepared($bundle, $this->submissionId($bundle));
-                $this->journals->save($journal);
+                $this->journals->create($journal);
             }
 
             $projection = $this->continueAgentAttempt($bundle, $journal);
             if ($projection->attention !== null || $projection->complete()) {
                 return $projection;
             }
-            $this->journals->delete($taskId);
         }
 
         throw new RuntimeException('TRANSITION_REJECTED: Runner exceeded the bounded authorized stage limit.');
@@ -164,8 +163,9 @@ final readonly class ExecutionCoordinator
         }
 
         $lease = $this->workspaces->acquire($bundle);
-        $journal = $journal->withProcessStarting($hostId, $availability->version);
-        $this->journals->save($journal);
+        $starting = $journal->withProcessStarting($hostId, $availability->version);
+        $this->journals->transition($journal, $starting);
+        $journal = $starting;
         $observer = new RuntimeProcessObserver(
             $this->journals,
             $bundle->taskId,
@@ -224,10 +224,10 @@ final readonly class ExecutionCoordinator
             $execution->process->stdout,
             $execution->process->stderr,
         );
-        $current = $current->withProcessExited($execution->process, $references['stdout'], $references['stderr']);
-        $this->journals->save($current);
+        $exited = $current->withProcessExited($execution->process, $references['stdout'], $references['stderr']);
+        $this->journals->transition($current, $exited);
 
-        return $this->completeExitedProcess($bundle, $current, $lease);
+        return $this->completeExitedProcess($bundle, $exited, $lease);
     }
 
     private function recoverInterruptedProcess(StageExecutionBundle $bundle, RuntimeJournal $journal): ExecutionProjection
@@ -320,10 +320,10 @@ final readonly class ExecutionCoordinator
             $completion->summary,
         );
 
-        $journal = $journal->withStageResult($result, $candidateRevision);
-        $this->journals->save($journal);
+        $persisted = $journal->withStageResult($result, $candidateRevision);
+        $this->journals->transition($journal, $persisted);
 
-        return $this->resubmitPersistedResult($journal);
+        return $this->resubmitPersistedResult($persisted);
     }
 
     private function persistFailureAndSubmit(
@@ -358,10 +358,10 @@ final readonly class ExecutionCoordinator
             [],
             $this->boundedSummary($summary),
         );
-        $journal = $journal->withStageResult($result, $candidateRevision);
-        $this->journals->save($journal);
+        $persisted = $journal->withStageResult($result, $candidateRevision);
+        $this->journals->transition($journal, $persisted);
 
-        return $this->resubmitPersistedResult($journal);
+        return $this->resubmitPersistedResult($persisted);
     }
 
     private function failureCandidateRevision(StageExecutionBundle $bundle, ?WorkspaceLease $lease): string
@@ -390,10 +390,27 @@ final readonly class ExecutionCoordinator
             $journal->stageId,
             $journal->attempt,
         );
-        $journal = $journal->withStatus(RuntimeStatus::SUBMISSION_ATTEMPTED);
-        $this->journals->save($journal);
+
+        if ($journal->status === RuntimeStatus::RECONCILED_ACCEPTED) {
+            $projection = $this->owner->submitStageResult($result);
+            if ($projection->attention === null && !$projection->complete()) {
+                $this->journals->deleteIf($journal);
+            }
+
+            return $projection;
+        }
+
+        $attempted = $journal;
+        if ($journal->status !== RuntimeStatus::SUBMISSION_ATTEMPTED) {
+            $attempted = $journal->withStatus(RuntimeStatus::SUBMISSION_ATTEMPTED);
+            $this->journals->transition($journal, $attempted);
+        }
         $projection = $this->owner->submitStageResult($result);
-        $this->journals->save($journal->withStatus(RuntimeStatus::RECONCILED_ACCEPTED));
+        $reconciled = $attempted->withStatus(RuntimeStatus::RECONCILED_ACCEPTED);
+        $this->journals->transition($attempted, $reconciled);
+        if ($projection->attention === null && !$projection->complete()) {
+            $this->journals->deleteIf($reconciled);
+        }
 
         return $projection;
     }
