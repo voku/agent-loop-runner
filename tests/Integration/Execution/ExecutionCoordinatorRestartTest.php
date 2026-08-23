@@ -28,6 +28,7 @@ use voku\AgentLoopRunner\Process\ProcessResult;
 use voku\AgentLoopRunner\Process\ProcessSupervisor;
 use voku\AgentLoopRunner\RunnerLayout;
 use voku\AgentLoopRunner\Runtime\AttemptStatus;
+use voku\AgentLoopRunner\Runtime\RunExecutionLock;
 use voku\AgentLoopRunner\Runtime\RuntimeJournal;
 use voku\AgentLoopRunner\Workspace\GitWorktreeService;
 use voku\AgentLoopRunner\Workspace\RunWorkspaceManager;
@@ -73,6 +74,21 @@ final class ExecutionCoordinatorRestartTest extends TestCase
         $submission=$this->journal->load('TASK')?->submissionId;
         $this->coordinator($gateway,$host,new NullCoordinatorHook())->resume('TASK');
         self::assertSame(1,$host->executions); self::assertSame([$submission],$gateway->submissions);
+    }
+
+    public function testConcurrentRunnerForSameTaskFailsBeforeSecondHostExecution(): void
+    {
+        $lock=RunExecutionLock::acquire(new RunnerLayout($this->root),'TASK');
+        $gateway=new FakeGateway($this->root,$this->base); $host=new CountingHost();
+        try {
+            $this->coordinator($gateway,$host,new NullCoordinatorHook())->run('TASK');
+            self::fail('Expected same-task execution lock rejection.');
+        } catch (RuntimeException $exception) {
+            self::assertStringStartsWith('STALE_RUN: another Runner process', $exception->getMessage());
+            self::assertSame(0,$host->executions);
+        } finally {
+            $lock->release();
+        }
     }
 
     private function coordinator(FakeGateway $gateway, CountingHost $host, CoordinatorHook $hook): ExecutionCoordinator
