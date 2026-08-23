@@ -54,6 +54,7 @@ final readonly class CompletionEnvelopeParser
         if (!is_array($payload) || array_is_list($payload)) {
             throw new InvalidCompletionEnvelope('INVALID_STAGE_RESULT: completion payload must be one JSON object.');
         }
+        $this->assertUniqueTopLevelMembers($json);
         $expectedKeys = ['artifact_references', 'outcome', 'summary', 'validation_references'];
         $keys = array_keys($payload);
         sort($keys);
@@ -80,6 +81,66 @@ final readonly class CompletionEnvelopeParser
             $this->references($payload['artifact_references'], 'artifact_references'),
             $this->references($payload['validation_references'], 'validation_references'),
         );
+    }
+
+    private function assertUniqueTopLevelMembers(string $json): void
+    {
+        $depth = 0;
+        $length = strlen($json);
+        /** @var array<string, true> $seen */
+        $seen = [];
+
+        for ($index = 0; $index < $length; ++$index) {
+            $character = $json[$index];
+            if ($character === '"') {
+                $start = $index;
+                $escaped = false;
+                for (++$index; $index < $length; ++$index) {
+                    $character = $json[$index];
+                    if ($escaped) {
+                        $escaped = false;
+                        continue;
+                    }
+                    if ($character === '\\') {
+                        $escaped = true;
+                        continue;
+                    }
+                    if ($character === '"') {
+                        break;
+                    }
+                }
+                if ($depth !== 1) {
+                    continue;
+                }
+                $next = $index + 1;
+                while ($next < $length && str_contains(" \t\r\n", $json[$next])) {
+                    ++$next;
+                }
+                if ($next >= $length || $json[$next] !== ':') {
+                    continue;
+                }
+                $encodedKey = substr($json, $start, $index - $start + 1);
+                try {
+                    $key = json_decode($encodedKey, true, 2, JSON_THROW_ON_ERROR);
+                } catch (JsonException $exception) {
+                    throw new InvalidCompletionEnvelope('INVALID_STAGE_RESULT: malformed completion JSON.', 0, $exception);
+                }
+                if (!is_string($key)) {
+                    throw new InvalidCompletionEnvelope('INVALID_STAGE_RESULT: completion object member name is invalid.');
+                }
+                $identity = base64_encode($key);
+                if (isset($seen[$identity])) {
+                    throw new InvalidCompletionEnvelope('INVALID_STAGE_RESULT: duplicate top-level completion object member.');
+                }
+                $seen[$identity] = true;
+                continue;
+            }
+            if ($character === '{' || $character === '[') {
+                ++$depth;
+            } elseif ($character === '}' || $character === ']') {
+                --$depth;
+            }
+        }
     }
 
     /** @return list<non-empty-string> */
