@@ -28,7 +28,7 @@ final readonly class GitCommand
             $timeoutSeconds,
         ));
 
-        return new GitCommandResult($result->exitCode, trim($result->stdout), trim($result->stderr));
+        return new GitCommandResult($result->exitCode, $result->stdout, $result->stderr);
     }
 
     /** @param list<non-empty-string> $arguments */
@@ -36,12 +36,13 @@ final readonly class GitCommand
     {
         $result = $this->run($workingDirectory, $arguments, $timeoutSeconds);
         if (!$result->successful()) {
+            $stderr = trim($result->stderr);
             throw new RuntimeException(sprintf(
                 'Git command failed in %s: git %s (exit %d)%s',
                 $workingDirectory,
                 implode(' ', $arguments),
                 $result->exitCode,
-                $result->stderr !== '' ? ': ' . $result->stderr : '',
+                $stderr !== '' ? ': ' . $stderr : '',
             ));
         }
 
