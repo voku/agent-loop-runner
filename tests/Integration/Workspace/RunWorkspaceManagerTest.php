@@ -61,6 +61,22 @@ final class RunWorkspaceManagerTest extends TestCase
         self::assertSame('mutated', file_get_contents($workspace->lease->path . '/tracked.txt'));
     }
 
+    public function testLargeUntrackedCandidateIsHashedWithoutChangingContractShape(): void
+    {
+        $workspace = $this->manager->acquire('TASK', 'RUN-LARGE', $this->base, 'builder', 1, true, $this->base);
+        $handle = fopen($workspace->lease->path . '/large.bin', 'wb');
+        self::assertIsResource($handle);
+        for ($i = 0; $i < 8; ++$i) {
+            self::assertSame(1024 * 1024, fwrite($handle, str_repeat(chr(65 + $i), 1024 * 1024)));
+        }
+        fclose($handle);
+
+        $candidate = $this->manager->candidateAfter($workspace);
+        $workspace->mutationLock?->release();
+
+        self::assertMatchesRegularExpression('/^git-worktree-v1:[0-9a-f]{40,64}:sha256:[0-9a-f]{64}$/', $candidate);
+    }
+
     public function testDirtyCleanupRefusesAndUnrelatedWorktreeSurvives(): void
     {
         $workspace = $this->manager->acquire('TASK', 'RUN', $this->base, 'builder', 1, true, $this->base);
