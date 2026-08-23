@@ -35,7 +35,6 @@ final readonly class ExecutionCoordinator
         private array $hosts,
         private ProcessSupervisor $supervisor,
         private DiagnosticLogStore $logs,
-        private RunnerLayout $layout,
         private CoordinatorHook $hook = new NullCoordinatorHook(),
         private int $iterationLimit = 64,
     ) {}
@@ -52,7 +51,7 @@ final readonly class ExecutionCoordinator
 
     private function withExecutionLock(string $taskId): ExecutionProjection
     {
-        $lock = RunExecutionLock::acquire($this->layout, $taskId);
+        $lock = RunExecutionLock::acquire(new RunnerLayout($this->workspaces->projectRoot()), $taskId);
         try {
             return $this->reconcile($taskId);
         } finally {
