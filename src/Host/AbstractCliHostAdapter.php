@@ -22,6 +22,7 @@ abstract readonly class AbstractCliHostAdapter implements HostAdapter
         if ($path === null) {
             return new HostAvailability($this->id(), null, null, 'binary not found');
         }
+
         try {
             $result = $processSupervisor->run(new ProcessRequest(
                 [$path, '--version'],
@@ -33,6 +34,7 @@ abstract readonly class AbstractCliHostAdapter implements HostAdapter
         } catch (RuntimeException $exception) {
             return new HostAvailability($this->id(), $path, null, $exception->getMessage());
         }
+
         if (!$result->successful()) {
             return new HostAvailability(
                 $this->id(),
@@ -66,7 +68,7 @@ abstract readonly class AbstractCliHostAdapter implements HostAdapter
         );
     }
 
-    /** @return non-empty-list<non-empty-string> */
+    /** @return non-empty-list<string> */
     abstract protected function argv(string $binaryPath, HostExecutionRequest $request): array;
 
     protected function stdin(HostExecutionRequest $request): string
