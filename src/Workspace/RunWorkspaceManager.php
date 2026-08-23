@@ -21,12 +21,17 @@ final readonly class RunWorkspaceManager
         $path = $this->layout->worktree($taskId, $runId);
         $canonical = $this->worktrees->create($this->layout->projectRoot(), $path, $baseCommit);
         $lease = new WorkspaceLease($taskId, $runId, $canonical, $baseCommit, $stageId, $attempt, $mayMutate);
-        $actual = $this->candidateRevision($canonical, $baseCommit);
-        if (!hash_equals($candidateRevision, $actual)) {
-            throw new RuntimeException('STALE_WORKSPACE: candidate revision does not match authoritative execution bundle.');
-        }
         $lock = $mayMutate ? $this->mutationLock($canonical) : null;
-        return new ManagedWorkspace($lease, $actual, $lock);
+        try {
+            $actual = $this->candidateRevision($canonical, $baseCommit);
+            if (!hash_equals($candidateRevision, $actual)) {
+                throw new RuntimeException('STALE_WORKSPACE: candidate revision does not match authoritative execution bundle.');
+            }
+            return new ManagedWorkspace($lease, $actual, $lock);
+        } catch (\Throwable $exception) {
+            $lock?->release();
+            throw $exception;
+        }
     }
 
     public function assertLease(WorkspaceLease $lease, string $taskId, string $runId, string $stageId, int $attempt, bool $mayMutate): void
