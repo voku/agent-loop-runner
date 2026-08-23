@@ -104,6 +104,22 @@ final readonly class RunWorkspaceManager
         }
     }
 
+    public function candidateRevisionAfter(StageExecutionBundle $bundle, WorkspaceLease $lease): string
+    {
+        $this->assertLeaseMatchesBundle($lease, $bundle);
+        if (!$bundle->mayMutate) {
+            $this->assertCandidate($bundle, $lease);
+
+            return $bundle->candidateRevision;
+        }
+
+        if ($this->worktrees->statusPorcelain($lease->path) === '') {
+            return $lease->baseCommit;
+        }
+
+        return $this->candidateHasher->hash($lease->path, $lease->baseCommit);
+    }
+
     public function release(WorkspaceLease $lease): void
     {
         $this->withLeaseLock($lease->taskId, $lease->runId, function () use ($lease): null {
@@ -118,6 +134,23 @@ final readonly class RunWorkspaceManager
             if (!unlink($path) && is_file($path)) {
                 throw new RuntimeException('Unable to release Run workspace lease: ' . $path);
             }
+
+            return null;
+        });
+    }
+
+    public function cleanup(string $taskId, string $runId): void
+    {
+        $this->withLeaseLock($taskId, $runId, function () use ($taskId, $runId): null {
+            $leasePath = $this->layout->workspaceLease($taskId, $runId);
+            if (is_file($leasePath)) {
+                throw new RuntimeException('STALE_WORKSPACE: refusing cleanup while a Run workspace lease is active.');
+            }
+
+            $this->worktrees->remove(
+                $this->layout->projectRoot(),
+                $this->layout->worktree($taskId, $runId),
+            );
 
             return null;
         });
@@ -138,12 +171,17 @@ final readonly class RunWorkspaceManager
 
         $temporary = $path . '.tmp-' . bin2hex(random_bytes(8));
         if (file_put_contents($temporary, $json, LOCK_EX) !== strlen($json)) {
-            @unlink($temporary);
+            if (is_file($temporary)) {
+                unlink($temporary);
+            }
             throw new RuntimeException('Unable to persist complete Run workspace lease: ' . $temporary);
         }
-        @chmod($temporary, 0600);
+        if (!chmod($temporary, 0600)) {
+            unlink($temporary);
+            throw new RuntimeException('Unable to protect Run workspace lease permissions: ' . $temporary);
+        }
         if (!rename($temporary, $path)) {
-            @unlink($temporary);
+            unlink($temporary);
             throw new RuntimeException('Unable to publish Run workspace lease atomically: ' . $path);
         }
     }
