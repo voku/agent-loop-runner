@@ -131,9 +131,36 @@ final readonly class RunWorkspaceManager
             if ($current !== $lease->toArray()) {
                 throw new RuntimeException('STALE_WORKSPACE: refusing to release a lease owned by a different stage or attempt.');
             }
-            if (!unlink($path) && is_file($path)) {
-                throw new RuntimeException('Unable to release Run workspace lease: ' . $path);
+            $this->unlinkLease($path);
+
+            return null;
+        });
+    }
+
+    public function releaseAttempt(
+        string $taskId,
+        string $runId,
+        string $baseCommit,
+        string $stageId,
+        int $attempt,
+    ): void {
+        $this->withLeaseLock($taskId, $runId, function () use ($taskId, $runId, $baseCommit, $stageId, $attempt): null {
+            $path = $this->layout->workspaceLease($taskId, $runId);
+            $current = $this->readLease($path);
+            if ($current === null) {
+                return null;
             }
+            if (
+                ($current['task_id'] ?? null) !== $taskId
+                || ($current['run_id'] ?? null) !== $runId
+                || ($current['base_commit'] ?? null) !== $baseCommit
+                || ($current['owner_stage_id'] ?? null) !== $stageId
+                || ($current['attempt'] ?? null) !== $attempt
+                || ($current['path'] ?? null) !== $this->layout->worktree($taskId, $runId)
+            ) {
+                throw new RuntimeException('STALE_WORKSPACE: persisted workspace lease does not belong to the reconciled attempt.');
+            }
+            $this->unlinkLease($path);
 
             return null;
         });
@@ -183,6 +210,13 @@ final readonly class RunWorkspaceManager
         if (!rename($temporary, $path)) {
             unlink($temporary);
             throw new RuntimeException('Unable to publish Run workspace lease atomically: ' . $path);
+        }
+    }
+
+    private function unlinkLease(string $path): void
+    {
+        if (!unlink($path) && is_file($path)) {
+            throw new RuntimeException('Unable to release Run workspace lease: ' . $path);
         }
     }
 
