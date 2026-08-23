@@ -31,6 +31,34 @@ final class RuntimeJournalTest extends TestCase
         self::assertStringNotContainsString('environment', (string) file_get_contents((new RunnerLayout($this->root))->runtime('TASK-1')));
     }
 
+    public function testRoundTripsOwnedProcessFingerprintForRestartSafeCancellation(): void
+    {
+        $journal = new RuntimeJournal(new RunnerLayout($this->root));
+        $attempt = new RuntimeAttempt(
+            'TASK-1',
+            'run-1',
+            1,
+            'sha256:plan',
+            'builder',
+            1,
+            'codex',
+            'workspace-hash',
+            'submission-uuid',
+            AttemptStatus::ProcessStarted,
+            process: [
+                'pid' => 4242,
+                'started_at' => '2026-08-23T20:00:00+00:00',
+                'process_fingerprint' => 'linux-proc-v1:4242:123456',
+            ],
+        );
+
+        $journal->save($attempt);
+        $loaded = $journal->load('TASK-1');
+
+        self::assertNotNull($loaded);
+        self::assertSame('linux-proc-v1:4242:123456', $loaded->process['process_fingerprint'] ?? null);
+    }
+
     public function testRejectsPartialWriteWithoutTreatingItAsState(): void
     {
         $layout = new RunnerLayout($this->root); mkdir(dirname($layout->runtime('TASK')), 0o700, true); file_put_contents($layout->runtime('TASK'), '{"schema_version":');
