@@ -24,8 +24,8 @@ final readonly class RuntimeProcessObserver implements ProcessLifecycleObserver
         if ($journal === null || $journal->submissionId !== $this->submissionId) {
             throw new RuntimeException('STALE_RUN: runtime journal changed before owned process start could be recorded.');
         }
-        if ($journal->status !== RuntimeStatus::PREPARED) {
-            throw new RuntimeException('STALE_RUN: owned process can start only from a prepared Runner attempt.');
+        if ($journal->status !== RuntimeStatus::PROCESS_STARTED || $journal->processPid !== null) {
+            throw new RuntimeException('STALE_RUN: owned PID can be attached only to the armed Runner process attempt.');
         }
 
         $this->journals->save($journal->withProcessStarted($pid, $startedAt, $this->hostId, $this->hostVersion));
