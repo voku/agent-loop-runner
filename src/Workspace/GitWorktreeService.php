@@ -20,7 +20,7 @@ final readonly class GitWorktreeService
             throw new RuntimeException('Project root cannot be resolved: ' . $projectRoot);
         }
         $canonical = $this->normalize($canonical);
-        $topLevel = $this->git->requireSuccess($canonical, ['rev-parse', '--show-toplevel'])->stdout;
+        $topLevel = trim($this->git->requireSuccess($canonical, ['rev-parse', '--show-toplevel'])->stdout);
         $resolvedTop = realpath($topLevel);
         if (!is_string($resolvedTop) || $this->normalize($resolvedTop) !== $canonical) {
             throw new RuntimeException('Runner project root is not the Git worktree root: ' . $canonical);
@@ -86,7 +86,7 @@ final readonly class GitWorktreeService
             throw new RuntimeException('Expected Run worktree does not exist: ' . $worktreePath);
         }
         $canonical = $this->normalize($canonical);
-        $topLevel = $this->git->requireSuccess($canonical, ['rev-parse', '--show-toplevel'])->stdout;
+        $topLevel = trim($this->git->requireSuccess($canonical, ['rev-parse', '--show-toplevel'])->stdout);
         $resolvedTop = realpath($topLevel);
         if (!is_string($resolvedTop) || $this->normalize($resolvedTop) !== $canonical) {
             throw new RuntimeException('Run workspace is not a Git worktree root: ' . $canonical);
@@ -94,7 +94,7 @@ final readonly class GitWorktreeService
         if ($this->commonGitDirectory($root) !== $this->commonGitDirectory($canonical)) {
             throw new RuntimeException('Run workspace belongs to a different Git repository: ' . $canonical);
         }
-        $head = $this->git->requireSuccess($canonical, ['rev-parse', '--verify', 'HEAD'])->stdout;
+        $head = trim($this->git->requireSuccess($canonical, ['rev-parse', '--verify', 'HEAD'])->stdout);
         if (!hash_equals($baseCommit, $head)) {
             throw new RuntimeException(sprintf(
                 'Run workspace HEAD drifted from governed base commit: expected %s, got %s.',
@@ -128,7 +128,7 @@ final readonly class GitWorktreeService
 
     private function commonGitDirectory(string $workingDirectory): string
     {
-        $path = $this->git->requireSuccess($workingDirectory, ['rev-parse', '--git-common-dir'])->stdout;
+        $path = trim($this->git->requireSuccess($workingDirectory, ['rev-parse', '--git-common-dir'])->stdout);
         if (!str_starts_with($path, '/')) {
             $path = rtrim($workingDirectory, '/\\') . '/' . $path;
         }
