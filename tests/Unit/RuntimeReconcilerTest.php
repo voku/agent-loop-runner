@@ -19,7 +19,7 @@ final class RuntimeReconcilerTest extends TestCase
 {
     public function testPersistedResultIsAlwaysResubmittedInsteadOfRerunningHost(): void
     {
-        $journal = self::journal(self::result(), RuntimeStatus::RESULT_PERSISTED);
+        $journal = self::journal(self::stageResult(), RuntimeStatus::RESULT_PERSISTED);
         $projection = self::projection('reviewer', 1, $journal->stageResult?->candidateRevision ?? 'unexpected');
 
         self::assertSame(
@@ -82,7 +82,7 @@ final class RuntimeReconcilerTest extends TestCase
         );
     }
 
-    private static function result(): StageResult
+    private static function stageResult(): StageResult
     {
         return new StageResult(
             'submission-1',
