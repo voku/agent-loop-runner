@@ -58,13 +58,12 @@ final readonly class RunnerLayout
 
     private function segment(string $value): string
     {
+        $original = $value;
         $value = strtolower(trim($value));
         $value = preg_replace('/[^a-z0-9._-]+/', '-', $value) ?? '';
         $value = trim($value, '-.');
-        if ($value === '') {
-            return substr(hash('sha256', $value), 0, 16);
-        }
+        $prefix = $value === '' ? 'id' : substr($value, 0, 43);
 
-        return substr($value, 0, 64);
+        return $prefix . '-' . substr(hash('sha256', $original), 0, 20);
     }
 }
