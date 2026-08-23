@@ -82,22 +82,40 @@ final readonly class RuntimeJournal
         );
     }
 
+    public function withProcessStarting(string $hostId, ?string $hostVersion): self
+    {
+        if ($this->status !== RuntimeStatus::PREPARED) {
+            throw new RuntimeException('STALE_RUN: process start can be armed only from a prepared Runner attempt.');
+        }
+
+        return $this->copy(
+            status: RuntimeStatus::PROCESS_STARTED,
+            hostId: self::nonEmpty($hostId, 'host id'),
+            hostVersion: $hostVersion,
+        );
+    }
+
     public function withProcessStarted(int $pid, string $startedAt, string $hostId, ?string $hostVersion): self
     {
+        if ($this->status !== RuntimeStatus::PROCESS_STARTED || $this->processPid !== null) {
+            throw new RuntimeException('STALE_RUN: owned PID can be attached only to an armed process start.');
+        }
+
         return $this->copy(
             status: RuntimeStatus::PROCESS_STARTED,
             hostId: self::nonEmpty($hostId, 'host id'),
             hostVersion: $hostVersion,
             processPid: $pid,
             startedAt: self::nonEmpty($startedAt, 'process start timestamp'),
-            finishedAt: null,
-            exitCode: null,
-            timedOut: false,
         );
     }
 
     public function withProcessExited(ProcessResult $result, string $stdoutLog, string $stderrLog): self
     {
+        if ($this->status !== RuntimeStatus::PROCESS_STARTED) {
+            throw new RuntimeException('STALE_RUN: process exit can be recorded only for an armed process attempt.');
+        }
+
         return $this->copy(
             status: RuntimeStatus::PROCESS_EXITED,
             startedAt: $this->startedAt ?? $result->startedAt,
