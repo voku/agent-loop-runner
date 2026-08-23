@@ -24,6 +24,7 @@ final readonly class ProcessRequest
         public string $stdin,
         array $environment,
         public int $timeoutSeconds,
+        public ?ProcessLifecycleObserver $observer = null,
     ) {
         if ($argv === []) {
             throw new InvalidArgumentException('Process request requires at least one argv entry.');
