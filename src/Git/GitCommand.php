@@ -17,7 +17,7 @@ final readonly class GitCommand
     ) {
     }
 
-    /** @param list<non-empty-string> $arguments */
+    /** @param list<string> $arguments */
     public function run(string $workingDirectory, array $arguments, int $timeoutSeconds = 30): GitCommandResult
     {
         $result = $this->processSupervisor->run(new ProcessRequest(
@@ -31,7 +31,7 @@ final readonly class GitCommand
         return new GitCommandResult($result->exitCode, $result->stdout, $result->stderr);
     }
 
-    /** @param list<non-empty-string> $arguments */
+    /** @param list<string> $arguments */
     public function requireSuccess(string $workingDirectory, array $arguments, int $timeoutSeconds = 30): GitCommandResult
     {
         $result = $this->run($workingDirectory, $arguments, $timeoutSeconds);
