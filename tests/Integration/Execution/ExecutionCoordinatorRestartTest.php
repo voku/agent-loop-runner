@@ -61,7 +61,7 @@ final class ExecutionCoordinatorRestartTest extends TestCase
     public function testCrashAfterResultPersistenceResubmitsExactResultWithoutHostExecution(): void
     {
         $gateway=new FakeGateway($this->root,$this->base); $host=new CountingHost();
-        try { $this->coordinator($gateway,$host,new ThrowAtBoundary('after_result_persisted'))->run('TASK'); } catch (InjectedCrash) {}
+        try { $this->coordinator($gateway,$host,new ThrowAtBoundary('after_result_persisted'))->run('TASK'); self::fail('Expected injected crash.'); } catch (InjectedCrash) {}
         $submission=$this->journal->load('TASK')?->submissionId;
         $this->coordinator($gateway,$host,new NullCoordinatorHook())->resume('TASK');
         self::assertSame(1,$host->executions); self::assertSame([$submission],$gateway->submissions);
@@ -70,7 +70,7 @@ final class ExecutionCoordinatorRestartTest extends TestCase
     public function testCrashBeforeProcessReusesStableSubmissionAndRunsOnceOnResume(): void
     {
         $gateway=new FakeGateway($this->root,$this->base); $host=new CountingHost();
-        try { $this->coordinator($gateway,$host,new ThrowAtBoundary('before_process_start'))->run('TASK'); } catch (InjectedCrash) {}
+        try { $this->coordinator($gateway,$host,new ThrowAtBoundary('before_process_start'))->run('TASK'); self::fail('Expected injected crash.'); } catch (InjectedCrash) {}
         $submission=$this->journal->load('TASK')?->submissionId;
         $this->coordinator($gateway,$host,new NullCoordinatorHook())->resume('TASK');
         self::assertSame(1,$host->executions); self::assertSame([$submission],$gateway->submissions);
@@ -109,7 +109,7 @@ final class FakeGateway implements ExecutionGatewayPort
 }
 final class CountingHost implements HostAdapter
 {
-    public int $executions=0;
+    public int$executions=0;
     public function id(): string{return'codex';}
     public function probe(ProcessSupervisor $processSupervisor,string $workingDirectory,array $environment):HostAvailability{return new HostAvailability('codex','fake','1',null);}
     public function execute(HostExecutionRequest $request,ProcessSupervisor $processSupervisor):HostExecutionResult{$this->executions++;return new HostExecutionResult('codex',new ProcessResult(0,"AGENT_LOOP_STAGE_RESULT {\"outcome\":\"pass\",\"summary\":\"done\",\"artifact_references\":[],\"validation_references\":[]}\n",'',false,'2026-01-01T00:00:00+00:00','2026-01-01T00:00:01+00:00'));}
