@@ -147,7 +147,7 @@ final readonly class RuntimeAttempt
      */
     private static function process(array $process): array
     {
-        $allowed = ['pid', 'started_at', 'exited_at', 'exit_code', 'timed_out', 'stdout_log', 'stderr_log', 'stdout_sha256', 'stderr_sha256', 'stdout_truncated', 'stderr_truncated'];
+        $allowed = ['pid', 'started_at', 'exited_at', 'exit_code', 'timed_out', 'stdout_log', 'stderr_log', 'stdout_sha256', 'stderr_sha256', 'stdout_truncated', 'stderr_truncated', 'process_fingerprint'];
         foreach (array_keys($process) as $key) {
             if (!is_string($key) || !in_array($key, $allowed, true)) {
                 throw new CorruptRuntimeJournal('Runtime journal process metadata contains an unknown field.');
