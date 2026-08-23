@@ -57,6 +57,7 @@ final class HostAdapterContractTest extends TestCase
         ];
     }
 
+    /** @param list<string> $expectedArgv */
     #[DataProvider('adapters')]
     public function testAdapterKeepsPromptAsProcessData(HostAdapter $template, array $expectedArgv, string $expectedStdin): void
     {
