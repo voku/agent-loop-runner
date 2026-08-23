@@ -1,0 +1,40 @@
+<?php
+
+declare(strict_types=1);
+
+namespace voku\AgentLoopRunner\Execution;
+
+use voku\AgentLoop\Execution\ExecutionGateway;
+use voku\AgentLoop\Execution\ExecutionProjection;
+use voku\AgentLoop\Execution\StageExecutionBundle;
+use voku\AgentLoop\Execution\StageResult;
+
+final readonly class AgentLoopExecutionOwner implements ExecutionOwner
+{
+    private ExecutionGateway $gateway;
+
+    public function __construct(string $projectRoot)
+    {
+        $this->gateway = new ExecutionGateway($projectRoot);
+    }
+
+    public function projection(string $taskId): ExecutionProjection
+    {
+        return $this->gateway->projection($taskId);
+    }
+
+    public function prepareStage(string $taskId, string $stageId): StageExecutionBundle
+    {
+        return $this->gateway->prepareStage($taskId, $stageId);
+    }
+
+    public function submitStageResult(StageResult $result): ExecutionProjection
+    {
+        return $this->gateway->submitStageResult($result);
+    }
+
+    public function runDeterministicStage(string $taskId, string $stageId): ExecutionProjection
+    {
+        return $this->gateway->runDeterministicStage($taskId, $stageId);
+    }
+}
