@@ -23,6 +23,7 @@ use voku\AgentLoopRunner\Process\ForegroundProcessSupervisor;
 use voku\AgentLoopRunner\Process\ProcessIdentity;
 use voku\AgentLoopRunner\RunnerLayout;
 use voku\AgentLoopRunner\Runtime\AttemptStatus;
+use voku\AgentLoopRunner\Runtime\RunExecutionLock;
 use voku\AgentLoopRunner\Runtime\RuntimeAttempt;
 use voku\AgentLoopRunner\Runtime\RuntimeJournal;
 use voku\AgentLoopRunner\Workspace\GitWorktreeService;
@@ -83,9 +84,14 @@ final readonly class RunnerApplication
 
     private function cleanup(string $task): int
     {
-        $layout=new RunnerLayout($this->projectRoot);$journal=new RuntimeJournal($layout);$attempt=$journal->load($task);if($attempt===null)throw new RuntimeException('STALE_RUN: no Runner observation identifies a workspace.');
-        if(!in_array($attempt->status,[AttemptStatus::ReconciledAccepted,AttemptStatus::Cancelled],true))throw new RuntimeException('STALE_WORKSPACE: workspace has unreconciled evidence.');
-        $supervisor=new ForegroundProcessSupervisor();$git=new GitCommand($supervisor,(new EnvironmentProjector())->project(['PATH','HOME']));$manager=new RunWorkspaceManager($layout,new GitWorktreeService($git),new WorkspaceCandidateHasher($git));$manager->cleanup($attempt->taskId,$attempt->runId);return ExitCode::OK;
+        $layout=new RunnerLayout($this->projectRoot);$lock=RunExecutionLock::acquire($layout,$task);
+        try {
+            $journal=new RuntimeJournal($layout);$attempt=$journal->load($task);if($attempt===null)throw new RuntimeException('STALE_RUN: no Runner observation identifies a workspace.');
+            if(!in_array($attempt->status,[AttemptStatus::ReconciledAccepted,AttemptStatus::Cancelled],true))throw new RuntimeException('STALE_WORKSPACE: workspace has unreconciled evidence.');
+            $supervisor=new ForegroundProcessSupervisor();$git=new GitCommand($supervisor,(new EnvironmentProjector())->project(['PATH','HOME']));$manager=new RunWorkspaceManager($layout,new GitWorktreeService($git),new WorkspaceCandidateHasher($git));$manager->cleanup($attempt->taskId,$attempt->runId);return ExitCode::OK;
+        } finally {
+            $lock->release();
+        }
     }
 
     /** @return array<string,HostAdapter> */
