@@ -42,7 +42,7 @@ final readonly class CompletionEnvelopeParser
         }
 
         $lastIndex = array_key_last($nonEmptyLines);
-        if ($lastIndex === null || $matchingLines[0] !== $lastIndex) {
+        if ($matchingLines[0] !== $lastIndex) {
             throw new RuntimeException('INVALID_STAGE_RESULT: completion envelope must be the final non-empty stdout line.');
         }
 
@@ -93,9 +93,7 @@ final readonly class CompletionEnvelopeParser
         );
     }
 
-    /**
-     * @param list<StageOutcome> $acceptedOutcomes
-     */
+    /** @param list<StageOutcome> $acceptedOutcomes */
     private function isAcceptedOutcome(StageOutcome $outcome, array $acceptedOutcomes): bool
     {
         foreach ($acceptedOutcomes as $acceptedOutcome) {
