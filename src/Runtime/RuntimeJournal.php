@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace voku\AgentLoopRunner\Runtime;
 
 use InvalidArgumentException;
+use voku\AgentLoop\Execution\StageOutcome;
 use voku\AgentLoop\Execution\StageResult;
 
 final readonly class RuntimeJournal
@@ -81,6 +82,154 @@ final readonly class RuntimeJournal
             'stderr_log' => $this->stderrLog,
             'stage_result' => $this->stageResult?->toArray(),
         ];
+    }
+
+    /** @param array<string, mixed> $data */
+    public static function fromArray(array $data): self
+    {
+        if (($data['schema_version'] ?? null) !== 1) {
+            throw new InvalidArgumentException('Runtime journal requires schema_version 1.');
+        }
+
+        $statusValue = self::requiredString($data, 'status');
+        $status = RuntimeStatus::tryFrom($statusValue);
+        if ($status === null) {
+            throw new InvalidArgumentException('Runtime journal contains an unknown status.');
+        }
+
+        return new self(
+            taskId: self::requiredString($data, 'task_id'),
+            runId: self::requiredString($data, 'run_id'),
+            contractRevision: self::requiredInt($data, 'contract_revision'),
+            executionPlanDigest: self::requiredString($data, 'execution_plan_digest'),
+            stageId: self::requiredString($data, 'stage_id'),
+            attempt: self::requiredInt($data, 'attempt'),
+            submissionId: self::requiredString($data, 'submission_id'),
+            status: $status,
+            baseCommit: self::requiredString($data, 'base_commit'),
+            candidateRevision: self::requiredString($data, 'candidate_revision'),
+            hostId: self::nullableString($data, 'host_id'),
+            hostVersion: self::nullableString($data, 'host_version'),
+            processPid: self::nullableInt($data, 'process_pid'),
+            startedAt: self::nullableString($data, 'started_at'),
+            finishedAt: self::nullableString($data, 'finished_at'),
+            exitCode: self::nullableInt($data, 'exit_code'),
+            timedOut: self::requiredBool($data, 'timed_out'),
+            stdoutLog: self::nullableString($data, 'stdout_log'),
+            stderrLog: self::nullableString($data, 'stderr_log'),
+            stageResult: self::stageResult($data['stage_result'] ?? null),
+        );
+    }
+
+    private static function stageResult(mixed $value): ?StageResult
+    {
+        if ($value === null) {
+            return null;
+        }
+        if (!is_array($value)) {
+            throw new InvalidArgumentException('Runtime journal stage_result must be an object or null.');
+        }
+
+        $outcome = StageOutcome::tryFrom(self::requiredString($value, 'outcome'));
+        if ($outcome === null) {
+            throw new InvalidArgumentException('Runtime journal stage_result has an unknown outcome.');
+        }
+
+        return new StageResult(
+            self::requiredString($value, 'submission_id'),
+            self::requiredString($value, 'task_id'),
+            self::requiredString($value, 'run_id'),
+            self::requiredInt($value, 'contract_revision'),
+            self::requiredString($value, 'execution_plan_digest'),
+            self::requiredString($value, 'stage_id'),
+            self::requiredInt($value, 'attempt'),
+            $outcome,
+            self::requiredString($value, 'candidate_revision'),
+            self::stringList($value, 'artifact_references'),
+            self::stringList($value, 'validation_references'),
+            self::requiredString($value, 'summary'),
+        );
+    }
+
+    /** @param array<array-key, mixed> $data */
+    private static function requiredString(array $data, string $key): string
+    {
+        $value = $data[$key] ?? null;
+        if (!is_string($value) || trim($value) === '') {
+            throw new InvalidArgumentException('Runtime journal requires non-empty string field ' . $key . '.');
+        }
+
+        return trim($value);
+    }
+
+    /** @param array<array-key, mixed> $data */
+    private static function nullableString(array $data, string $key): ?string
+    {
+        $value = $data[$key] ?? null;
+        if ($value === null) {
+            return null;
+        }
+        if (!is_string($value) || trim($value) === '') {
+            throw new InvalidArgumentException('Runtime journal field ' . $key . ' must be a non-empty string or null.');
+        }
+
+        return trim($value);
+    }
+
+    /** @param array<array-key, mixed> $data */
+    private static function requiredInt(array $data, string $key): int
+    {
+        $value = $data[$key] ?? null;
+        if (!is_int($value)) {
+            throw new InvalidArgumentException('Runtime journal requires integer field ' . $key . '.');
+        }
+
+        return $value;
+    }
+
+    /** @param array<array-key, mixed> $data */
+    private static function nullableInt(array $data, string $key): ?int
+    {
+        $value = $data[$key] ?? null;
+        if ($value !== null && !is_int($value)) {
+            throw new InvalidArgumentException('Runtime journal field ' . $key . ' must be an integer or null.');
+        }
+
+        return $value;
+    }
+
+    /** @param array<array-key, mixed> $data */
+    private static function requiredBool(array $data, string $key): bool
+    {
+        $value = $data[$key] ?? null;
+        if (!is_bool($value)) {
+            throw new InvalidArgumentException('Runtime journal requires boolean field ' . $key . '.');
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<array-key, mixed> $data
+     * @return list<non-empty-string>
+     */
+    private static function stringList(array $data, string $key): array
+    {
+        $value = $data[$key] ?? null;
+        if (!is_array($value) || !array_is_list($value)) {
+            throw new InvalidArgumentException('Runtime journal requires list field ' . $key . '.');
+        }
+
+        $result = [];
+        foreach ($value as $entry) {
+            if (!is_string($entry) || trim($entry) === '') {
+                throw new InvalidArgumentException('Runtime journal field ' . $key . ' requires non-empty strings.');
+            }
+            $entry = trim($entry);
+            $result[] = $entry;
+        }
+
+        return $result;
     }
 
     private static function nonEmpty(string $value, string $field): string
