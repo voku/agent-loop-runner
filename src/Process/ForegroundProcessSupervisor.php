@@ -7,6 +7,7 @@ namespace voku\AgentLoopRunner\Process;
 use DateTimeImmutable;
 use DateTimeInterface;
 use RuntimeException;
+use Throwable;
 
 final readonly class ForegroundProcessSupervisor implements ProcessSupervisor
 {
@@ -47,6 +48,17 @@ final readonly class ForegroundProcessSupervisor implements ProcessSupervisor
         $timedOut = false;
         $status = proc_get_status($process);
         $pid = $status['pid'];
+        if (!is_int($pid) || $pid < 1) {
+            $this->closeRunningProcess($process, $pipes, 0);
+            throw new RuntimeException('Process started without a usable PID: ' . $request->argv[0]);
+        }
+
+        try {
+            $request->observer?->started($pid, $startedAt);
+        } catch (Throwable $exception) {
+            $this->closeRunningProcess($process, $pipes, $pid);
+            throw new RuntimeException('Unable to persist owned process start before execution continued.', 0, $exception);
+        }
 
         while (true) {
             $stdout .= (string) stream_get_contents($pipes[1]);
@@ -109,6 +121,26 @@ final readonly class ForegroundProcessSupervisor implements ProcessSupervisor
         }
 
         return $argv;
+    }
+
+    /**
+     * @param resource $process
+     * @param array<int, resource> $pipes
+     */
+    private function closeRunningProcess($process, array $pipes, int $pid): void
+    {
+        $this->terminate($process, $pid);
+        usleep(100_000);
+        $status = proc_get_status($process);
+        if ($status['running']) {
+            $this->kill($process, $pid);
+        }
+        foreach ($pipes as $pipe) {
+            if (is_resource($pipe)) {
+                fclose($pipe);
+            }
+        }
+        proc_close($process);
     }
 
     /** @param resource $process */
