@@ -28,6 +28,9 @@ final readonly class RuntimeProcessObserver implements ProcessLifecycleObserver
             throw new RuntimeException('STALE_RUN: owned PID can be attached only to the armed Runner process attempt.');
         }
 
-        $this->journals->save($journal->withProcessStarted($pid, $startedAt, $this->hostId, $this->hostVersion));
+        $this->journals->transition(
+            $journal,
+            $journal->withProcessStarted($pid, $startedAt, $this->hostId, $this->hostVersion),
+        );
     }
 }
