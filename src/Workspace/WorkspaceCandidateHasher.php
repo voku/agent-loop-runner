@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace voku\AgentLoopRunner\Workspace;
 
+use HashContext;
 use RuntimeException;
 use voku\AgentLoopRunner\Git\GitCommand;
 
@@ -45,9 +46,8 @@ final readonly class WorkspaceCandidateHasher
         hash_update($hash, strlen($trackedDiff) . "\0" . $trackedDiff);
         foreach ($untracked as $relativePath) {
             $absolute = $this->inside($worktreePath, $relativePath);
-            $contents = $this->fileEvidence($absolute);
             hash_update($hash, "\0U\0" . strlen($relativePath) . "\0" . $relativePath);
-            hash_update($hash, "\0" . strlen($contents) . "\0" . $contents);
+            $this->updateFileEvidence($hash, $absolute);
         }
 
         return 'git-worktree-v1:' . $baseCommit . ':sha256:' . hash_final($hash);
@@ -97,24 +97,41 @@ final readonly class WorkspaceCandidateHasher
         return $candidate;
     }
 
-    private function fileEvidence(string $path): string
+    private function updateFileEvidence(HashContext $hash, string $path): void
     {
         if (is_link($path)) {
             $target = readlink($path);
             if (!is_string($target)) {
                 throw new RuntimeException('Unable to read candidate symlink: ' . $path);
             }
-
-            return 'symlink:' . $target;
+            $evidence = 'symlink:' . $target;
+            hash_update($hash, "\0" . strlen($evidence) . "\0" . $evidence);
+            return;
         }
         if (!is_file($path)) {
             throw new RuntimeException('Untracked candidate is not a regular file or symlink: ' . $path);
         }
-        $contents = file_get_contents($path);
-        if (!is_string($contents)) {
+        $size = filesize($path);
+        $handle = fopen($path, 'rb');
+        if (!is_int($size) || $handle === false) {
             throw new RuntimeException('Unable to read untracked candidate file: ' . $path);
         }
-
-        return 'file:' . $contents;
+        hash_update($hash, "\0" . ($size + strlen('file:')) . "\0file:");
+        $read = 0;
+        try {
+            while (!feof($handle)) {
+                $chunk = fread($handle, 1024 * 1024);
+                if ($chunk === false) {
+                    throw new RuntimeException('Unable to read untracked candidate file: ' . $path);
+                }
+                $read += strlen($chunk);
+                hash_update($hash, $chunk);
+            }
+        } finally {
+            fclose($handle);
+        }
+        if ($read !== $size) {
+            throw new RuntimeException('Untracked candidate changed while hashing: ' . $path);
+        }
     }
 }
