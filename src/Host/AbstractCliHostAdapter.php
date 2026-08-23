@@ -18,7 +18,7 @@ abstract readonly class AbstractCliHostAdapter implements HostAdapter
 
     final public function probe(ProcessSupervisor $processSupervisor, string $workingDirectory, array $environment): HostAvailability
     {
-        $path = $this->binaryLocator->locate($this->binary);
+        $path = $this->binaryLocator->locate($this->binary, $environment, $workingDirectory);
         if ($path === null) {
             return new HostAvailability($this->id(), null, null, 'binary not found');
         }
@@ -49,7 +49,7 @@ abstract readonly class AbstractCliHostAdapter implements HostAdapter
 
     final public function execute(HostExecutionRequest $request, ProcessSupervisor $processSupervisor): HostExecutionResult
     {
-        $path = $this->binaryLocator->locate($this->binary);
+        $path = $this->binaryLocator->locate($this->binary, $request->environment, $request->workingDirectory);
         if ($path === null) {
             throw new RuntimeException('Host binary is unavailable for ' . $this->id() . ': ' . $this->binary);
         }
