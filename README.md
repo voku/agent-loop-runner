@@ -26,7 +26,7 @@ agent-loop-runner cancel <task-id>
 agent-loop-runner cleanup <task-id>
 ```
 
-`run` and `resume` use the same reconciliation path. Every iteration reloads `agent-loop`'s authoritative execution projection before deciding whether a stage may run.
+`run` and `resume` use the same reconciliation path. A nonblocking per-task execution lock prevents concurrent Runner processes from executing the same governed stage, and every iteration reloads `agent-loop`'s authoritative execution projection before deciding whether a stage may run.
 
 ## State
 
@@ -57,10 +57,11 @@ Binary paths can be configured explicitly. Model choice, reasoning/effort settin
 - stdout/stderr never becomes workflow truth;
 - only `agent-loop` accepts a `StageResult` transition;
 - one governed Run gets one isolated Git worktree;
-- at most one mutating stage owns that Run workspace at a time;
+- only one Runner process executes a task at a time; mutating stages additionally own an exclusive workspace lease;
 - the user's active checkout is never the fallback mutation target;
 - no push, PR merge, or permission-bypass flag is performed by default;
-- stale Run, Contract, execution-plan, attempt, or workspace bindings fail closed.
+- stale Run, Contract, execution-plan, attempt, or workspace bindings fail closed;
+- restart reconciliation is designed for normal process failure/restart. Sudden power-loss durability of a journal rename is not claimed on platforms where PHP cannot synchronize the parent directory entry.
 
 ## Design documentation
 
