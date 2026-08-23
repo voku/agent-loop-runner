@@ -1,0 +1,39 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use voku\AgentLoopRunner\Application\RunnerApplication;
+
+$autoloaders = [
+    __DIR__ . '/../vendor/autoload.php',
+    __DIR__ . '/../../../autoload.php',
+];
+$loaded = false;
+foreach ($autoloaders as $autoloader) {
+    if (is_file($autoloader)) {
+        require $autoloader;
+        $loaded = true;
+        break;
+    }
+}
+if (!$loaded) {
+    fwrite(STDERR, "PROCESS_FAILED: Composer autoloader not found.\n");
+    exit(1);
+}
+
+$root = getcwd();
+if (!is_string($root) || $root === '') {
+    fwrite(STDERR, "STALE_WORKSPACE: current project root cannot be resolved.\n");
+    exit(1);
+}
+
+try {
+    $application = RunnerApplication::create($root);
+    /** @var list<string> $arguments */
+    $arguments = array_values(array_slice($argv, 1));
+    exit($application->execute($arguments));
+} catch (Throwable $exception) {
+    fwrite(STDERR, rtrim($exception->getMessage()) . "\n");
+    exit(1);
+}
