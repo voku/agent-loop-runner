@@ -5,6 +5,7 @@ namespace voku\AgentLoopRunner\Tests\Integration\Execution;
 
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use voku\AgentLoop\Execution\ExecutionEnvironmentObservation;
 use voku\AgentLoop\Execution\ExecutionProfileName;
 use voku\AgentLoop\Execution\ExecutionProjection;
 use voku\AgentLoop\Execution\ExecutionStageKind;
@@ -52,9 +53,9 @@ final class ExecutionCoordinatorRestartTest extends TestCase
         $gateway=new FakeGateway($this->root,$this->base); $host=new CountingHost();
         $crashing=$this->coordinator($gateway,$host,new ThrowAtBoundary('after_submission_accepted'));
         try { $crashing->run('TASK'); self::fail('Expected injected crash.'); } catch (InjectedCrash) {}
-        self::assertSame(1,$host->executions); self::assertTrue($gateway->projection('TASK')->complete());
+        self::assertSame(1,$host->executions); self::assertSame(1,$host->probes); self::assertTrue($gateway->projection('TASK')->complete());
         $complete=$this->coordinator($gateway,$host,new NullCoordinatorHook())->resume('TASK');
-        self::assertTrue($complete->complete()); self::assertSame(1,$host->executions);
+        self::assertTrue($complete->complete()); self::assertSame(1,$host->executions); self::assertSame(1,$host->probes);
         self::assertSame(AttemptStatus::ResultPersisted,$this->journal->load('TASK')?->status);
     }
 
@@ -64,7 +65,7 @@ final class ExecutionCoordinatorRestartTest extends TestCase
         try { $this->coordinator($gateway,$host,new ThrowAtBoundary('after_result_persisted'))->run('TASK'); self::fail('Expected injected crash.'); } catch (InjectedCrash) {}
         $submission=$this->journal->load('TASK')?->submissionId;
         $this->coordinator($gateway,$host,new NullCoordinatorHook())->resume('TASK');
-        self::assertSame(1,$host->executions); self::assertSame([$submission],$gateway->submissions);
+        self::assertSame(1,$host->executions); self::assertSame(1,$host->probes); self::assertSame([$submission],$gateway->submissions);
     }
 
     public function testCrashBeforeProcessReusesStableSubmissionAndRunsOnceOnResume(): void
@@ -73,7 +74,7 @@ final class ExecutionCoordinatorRestartTest extends TestCase
         try { $this->coordinator($gateway,$host,new ThrowAtBoundary('before_process_start'))->run('TASK'); self::fail('Expected injected crash.'); } catch (InjectedCrash) {}
         $submission=$this->journal->load('TASK')?->submissionId;
         $this->coordinator($gateway,$host,new NullCoordinatorHook())->resume('TASK');
-        self::assertSame(1,$host->executions); self::assertSame([$submission],$gateway->submissions);
+        self::assertSame(1,$host->executions); self::assertSame(2,$host->probes); self::assertSame([$submission],$gateway->submissions);
     }
 
     public function testConcurrentRunnerForSameTaskFailsBeforeSecondHostExecution(): void
@@ -85,7 +86,7 @@ final class ExecutionCoordinatorRestartTest extends TestCase
             self::fail('Expected same-task execution lock rejection.');
         } catch (RuntimeException $exception) {
             self::assertStringStartsWith('STALE_RUN: another Runner process', $exception->getMessage());
-            self::assertSame(0,$host->executions);
+            self::assertSame(0,$host->executions); self::assertSame(0,$host->probes);
         } finally {
             $lock->release();
         }
@@ -104,14 +105,15 @@ final class FakeGateway implements ExecutionGatewayPort
     public function __construct(private readonly string $root,private readonly string $base) {}
     public function projection(string $taskId): ExecutionProjection { return new ExecutionProjection($taskId,'RUN',1,ExecutionProfileName::SURGICAL,'sha256:'.str_repeat('a',64),$this->complete?null:'builder',1,null,[],$this->base); }
     public function prepareStage(string $taskId,string $stageId): StageExecutionBundle { return new StageExecutionBundle($taskId,'RUN',1,'sha256:'.str_repeat('a',64),$stageId,1,ExecutionStageKind::AGENT,'builder',true,$this->root,$this->base,$this->base,['path'=>'contract','sha256'=>'sha256:'.str_repeat('b',64)],null,['src'],['test'],null,[StageOutcome::PASS,StageOutcome::FAILED],'AGENT_LOOP_STAGE_RESULT ',"do work\n"); }
+    public function prepareStageForEnvironment(string$taskId,string$stageId,ExecutionEnvironmentObservation$observation):StageExecutionBundle{$bundle=$this->prepareStage($taskId,$stageId);return new StageExecutionBundle($bundle->taskId,$bundle->runId,$bundle->contractRevision,$bundle->executionPlanDigest,$bundle->stageId,$bundle->attempt,$bundle->kind,$bundle->roleId,$bundle->mayMutate,$bundle->repositoryRoot,$bundle->baseCommit,$bundle->candidateRevision,$bundle->contractSource,$bundle->recallSource,$bundle->allowedScope,$bundle->requiredValidation,$bundle->priorHandoff,$bundle->acceptedOutcomes,$bundle->completionMarker,$bundle->prompt,$observation->digest());}
     public function submitStageResult(StageResult $result): ExecutionProjection { $this->submissions[]=$result->submissionId;$this->complete=true;return $this->projection($result->taskId); }
     public function runDeterministicStage(string $taskId,string $stageId): ExecutionProjection { throw new RuntimeException('not expected'); }
 }
 final class CountingHost implements HostAdapter
 {
-    public int$executions=0;
+    public int$executions=0;public int$probes=0;
     public function id(): string{return'codex';}
-    public function probe(ProcessSupervisor $processSupervisor,string $workingDirectory,array $environment):HostAvailability{return new HostAvailability('codex','fake','1',null);}
+    public function probe(ProcessSupervisor $processSupervisor,string $workingDirectory,array $environment):HostAvailability{$this->probes++;return new HostAvailability('codex','fake','1',null);}
     public function execute(HostExecutionRequest $request,ProcessSupervisor $processSupervisor):HostExecutionResult{$this->executions++;return new HostExecutionResult('codex',new ProcessResult(0,"AGENT_LOOP_STAGE_RESULT {\"outcome\":\"pass\",\"summary\":\"done\",\"artifact_references\":[],\"validation_references\":[]}\n",'',false,'2026-01-01T00:00:00+00:00','2026-01-01T00:00:01+00:00'));}
 }
 final readonly class ThrowAtBoundary implements CoordinatorHook { public function __construct(private string $boundary){} public function reached(string $boundary):void{if($boundary===$this->boundary)throw new InjectedCrash();} }
