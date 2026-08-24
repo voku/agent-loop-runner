@@ -60,4 +60,25 @@ final class ConfigEnvironmentTest extends TestCase
             putenv($secret);
         }
     }
+
+    public function testLoadStripsUtf8Bom(): void
+    {
+        $dir = sys_get_temp_dir() . '/runner-config-test-' . bin2hex(random_bytes(4));
+        mkdir($dir . '/.agent-loop-runner', 0777, true);
+        $json = "\xEF\xBB\xBF" . json_encode([
+            'schema_version' => 1,
+            'hosts' => ['codex' => ['binary' => 'codex-custom']],
+        ], JSON_THROW_ON_ERROR);
+        file_put_contents($dir . '/.agent-loop-runner/config.json', $json);
+
+        try {
+            $config = RunnerConfig::load($dir);
+            self::assertSame('codex-custom', $config->binary('codex'));
+        } finally {
+            unlink($dir . '/.agent-loop-runner/config.json');
+            rmdir($dir . '/.agent-loop-runner');
+            rmdir($dir);
+        }
+    }
 }
+
