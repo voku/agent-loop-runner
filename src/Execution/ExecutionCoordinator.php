@@ -5,6 +5,8 @@ namespace voku\AgentLoopRunner\Execution;
 
 use DateTimeImmutable;
 use RuntimeException;
+use voku\AgentLoop\Execution\ExecutionEnvironmentObservation;
+use voku\AgentLoop\Execution\ExecutionEnvironmentTool;
 use voku\AgentLoop\Execution\ExecutionProjection;
 use voku\AgentLoop\Execution\ExecutionStageKind;
 use voku\AgentLoop\Execution\StageOutcome;
@@ -100,12 +102,41 @@ final readonly class ExecutionCoordinator
             $hostId = $this->config->hostForRole($bundle->roleId);
             $host = $this->hosts[$hostId] ?? null;
             if (!$host instanceof HostAdapter) throw new RuntimeException('HOST_UNAVAILABLE: ' . $hostId);
+
+            $environment = (new EnvironmentProjector())->project($this->config->environmentAllowlist);
+            $availability = $host->probe($this->supervisor, $workspace->lease->path, $environment);
+            if ($host->id() !== $hostId || $availability->hostId !== $hostId) {
+                throw new RuntimeException('HOST_MISMATCH: configured host identity conflicts with adapter observation.');
+            }
+            if (!$availability->available()) {
+                throw new RuntimeException('HOST_UNAVAILABLE: ' . $hostId);
+            }
+
+            $bundle = $this->gateway->prepareStageForEnvironment(
+                $taskId,
+                $stageId,
+                new ExecutionEnvironmentObservation(
+                    $bundle->taskId,
+                    $bundle->runId,
+                    $bundle->contractRevision,
+                    $bundle->executionPlanDigest,
+                    $bundle->stageId,
+                    $bundle->attempt,
+                    $bundle->candidateRevision,
+                    $availability->hostId,
+                    [new ExecutionEnvironmentTool($availability->hostId, true, $availability->version)],
+                ),
+            );
+            if ($bundle->environmentObservationDigest === null) {
+                throw new RuntimeException('TRANSITION_REJECTED: environment-aware stage bundle is missing observation lineage.');
+            }
+
             $submissionId = $local !== null ? $local->submissionId : $this->submissionId($bundle->taskId, $bundle->runId, $bundle->stageId, $bundle->attempt);
             $attempt = new RuntimeAttempt($bundle->taskId, $bundle->runId, $bundle->contractRevision, $bundle->executionPlanDigest, $bundle->stageId, $bundle->attempt, $hostId, hash('sha256', $workspace->lease->path), $submissionId);
             $this->journal->save($attempt);
             try {
                 $this->hook->reached('before_process_start');
-                $result = $host->execute(new HostExecutionRequest($bundle->roleId, $workspace->lease->path, $bundle->prompt, (new EnvironmentProjector())->project($this->config->environmentAllowlist), $this->config->timeoutSeconds, new JournalProcessObserver($this->journal, $attempt)), $this->supervisor);
+                $result = $host->execute(new HostExecutionRequest($bundle->roleId, $workspace->lease->path, $bundle->prompt, $environment, $this->config->timeoutSeconds, new JournalProcessObserver($this->journal, $attempt)), $this->supervisor);
                 $this->hook->reached('after_process_exit');
                 if ($result->process->startedAt === '' || $result->process->finishedAt === '') throw new RuntimeException('PROCESS_FAILED: process evidence is incomplete.');
                 $logEvidence = $this->logs->persist($attempt->taskId, $attempt->runId, $attempt->stageId, $attempt->attempt, $result->process->stdout, $result->process->stderr);
