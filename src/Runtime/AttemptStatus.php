@@ -9,6 +9,7 @@ enum AttemptStatus: string
     case Prepared = 'prepared';
     case ProcessStarted = 'process_started';
     case ProcessExited = 'process_exited';
+    case CandidateObserved = 'candidate_observed';
     case ResultPersisted = 'result_persisted';
     case SubmissionAttempted = 'submission_attempted';
     case ReconciledAccepted = 'reconciled_accepted';
