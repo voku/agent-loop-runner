@@ -6,6 +6,7 @@ namespace voku\AgentLoopRunner\Tests\Integration\Execution;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use voku\AgentLoop\Execution\ExecutionEnvironmentObservation;
 use voku\AgentLoop\Execution\ExecutionProfileName;
 use voku\AgentLoop\Execution\ExecutionProjection;
 use voku\AgentLoop\Execution\ExecutionStageKind;
@@ -47,21 +48,23 @@ final class ProfileEndToEndTest extends TestCase
     public function testProfileCompletesThroughOneCoordinator(ExecutionProfileName $profile,array $stages):void
     {
         $gateway=new ProfileGateway($this->root,$this->base,$profile,$stages);$host=new ProfileHost();$supervisor=new ForegroundProcessSupervisor();$layout=new RunnerLayout($this->root);$git=new GitCommand($supervisor,['PATH'=>(string)getenv('PATH')]);
-        $coordinator=new ExecutionCoordinator($gateway,new RuntimeJournal($layout),new RunWorkspaceManager($layout,new GitWorktreeService($git),new WorkspaceCandidateHasher($git)),new CompletionEnvelopeParser(),RunnerConfig::defaults(),['codex'=>$host,'claude'=>$host],$supervisor,new DiagnosticLogStore($layout));
-        $projection=$coordinator->run('TASK');self::assertTrue($projection->complete());self::assertSame(count($stages)-1,$host->executions);self::assertSame(1,$gateway->deterministicExecutions);self::assertSame($stages,$gateway->visited);
+        $defaults=RunnerConfig::defaults();$roles=[];foreach($stages as$stage){if($stage!=='verify')$roles[$stage]='codex';}$config=new RunnerConfig($defaults->hosts,$roles,$defaults->timeoutSeconds,$defaults->environmentAllowlist);
+        $coordinator=new ExecutionCoordinator($gateway,new RuntimeJournal($layout),new RunWorkspaceManager($layout,new GitWorktreeService($git),new WorkspaceCandidateHasher($git)),new CompletionEnvelopeParser(),$config,['codex'=>$host],$supervisor,new DiagnosticLogStore($layout));
+        $projection=$coordinator->run('TASK');self::assertTrue($projection->complete());self::assertSame(count($stages)-1,$host->executions);self::assertSame(count($stages)-1,$host->probes);self::assertSame(1,$gateway->deterministicExecutions);self::assertSame($stages,$gateway->visited);self::assertSame(count($stages)-1,$gateway->environmentPreparations);
     }
     /** @param list<string> $args */private function git(array$args):string{$p=proc_open(['git','-C',$this->root,...$args],[1=>['pipe','w'],2=>['pipe','w']],$pipes);self::assertIsResource($p);$o=stream_get_contents($pipes[1]);$e=stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);self::assertSame(0,proc_close($p),(string)$e);return(string)$o;}
 }
 final class ProfileGateway implements ExecutionGatewayPort
 {
-    private int $index=0;public int $deterministicExecutions=0;/** @var list<string> */public array$visited=[];
+    private int $index=0;public int $deterministicExecutions=0;public int$environmentPreparations=0;/** @var list<string> */public array$visited=[];
     /** @param list<string> $stages */public function __construct(private readonly string$root,private readonly string$base,private readonly ExecutionProfileName$profile,private readonly array$stages){}
     public function projection(string$taskId):ExecutionProjection{return new ExecutionProjection($taskId,'RUN',1,$this->profile,'sha256:'.str_repeat('d',64),$this->stages[$this->index]??null,1,null,[],$this->base);}
     public function prepareStage(string$taskId,string$stageId):StageExecutionBundle{$det=$stageId==='verify';return new StageExecutionBundle($taskId,'RUN',1,'sha256:'.str_repeat('d',64),$stageId,1,$det?ExecutionStageKind::DETERMINISTIC:ExecutionStageKind::AGENT,$det?null:$stageId,!in_array($stageId,['investigator','reviewer','correctness-review','architecture-review','independent-verification','blindspot-review'],true),$this->root,$this->base,$this->base,['path'=>'contract','sha256'=>'sha256:'.str_repeat('e',64)],null,['src'],['composer ci'],null,[StageOutcome::PASS,StageOutcome::FAILED],'AGENT_LOOP_STAGE_RESULT ','work');}
+    public function prepareStageForEnvironment(string$taskId,string$stageId,ExecutionEnvironmentObservation$observation):StageExecutionBundle{$this->environmentPreparations++;$bundle=$this->prepareStage($taskId,$stageId);return new StageExecutionBundle($bundle->taskId,$bundle->runId,$bundle->contractRevision,$bundle->executionPlanDigest,$bundle->stageId,$bundle->attempt,$bundle->kind,$bundle->roleId,$bundle->mayMutate,$bundle->repositoryRoot,$bundle->baseCommit,$bundle->candidateRevision,$bundle->contractSource,$bundle->recallSource,$bundle->allowedScope,$bundle->requiredValidation,$bundle->priorHandoff,$bundle->acceptedOutcomes,$bundle->completionMarker,$bundle->prompt,$observation->digest());}
     public function submitStageResult(StageResult$result):ExecutionProjection{$this->visited[]=$result->stageId;$this->index++;return$this->projection($result->taskId);}
     public function runDeterministicStage(string$taskId,string$stageId):ExecutionProjection{$this->deterministicExecutions++;$this->visited[]=$stageId;$this->index++;return$this->projection($taskId);}
 }
 final class ProfileHost implements HostAdapter
 {
-    public int$executions=0;public function id():string{return'fake';}public function probe(ProcessSupervisor$p,string$w,array$e):HostAvailability{return new HostAvailability('fake','fake','1',null);}public function execute(HostExecutionRequest$r,ProcessSupervisor$p):HostExecutionResult{$this->executions++;return new HostExecutionResult('fake',new ProcessResult(0,'AGENT_LOOP_STAGE_RESULT {"outcome":"pass","summary":"ok","artifact_references":[],"validation_references":[]}' . "\n",'',false,'start','finish'));}
+    public int$executions=0;public int$probes=0;public function id():string{return'codex';}public function probe(ProcessSupervisor$p,string$w,array$e):HostAvailability{$this->probes++;return new HostAvailability('codex','fake','1',null);}public function execute(HostExecutionRequest$r,ProcessSupervisor$p):HostExecutionResult{$this->executions++;return new HostExecutionResult('codex',new ProcessResult(0,'AGENT_LOOP_STAGE_RESULT {"outcome":"pass","summary":"ok","artifact_references":[],"validation_references":[]}' . "\n",'',false,'start','finish'));}
 }
