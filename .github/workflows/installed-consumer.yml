@@ -1,0 +1,119 @@
+name: Installed consumer proof
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  clean-consumer:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.3', '8.5']
+    steps:
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer:v2
+
+      - name: Resolve exact Runner source ref
+        shell: bash
+        run: |
+          if [ "${GITHUB_EVENT_NAME}" = "pull_request" ]; then
+            ref='${{ github.event.pull_request.head.ref }}'
+            sha='${{ github.event.pull_request.head.sha }}'
+          else
+            ref="${GITHUB_REF_NAME}"
+            sha="${GITHUB_SHA}"
+          fi
+          printf 'RUNNER_VERSION=dev-%s#%s\n' "$ref" "$sha" >> "$GITHUB_ENV"
+
+      - name: Install into a fresh external Composer consumer
+        shell: bash
+        run: |
+          consumer="${RUNNER_TEMP}/agent-loop-runner-consumer"
+          mkdir -p "$consumer"
+          cd "$consumer"
+          cat > composer.json <<JSON
+          {
+            "name": "voku/agent-loop-runner-consumer-proof",
+            "type": "project",
+            "repositories": [
+              {"type": "vcs", "url": "https://github.com/voku/agent-loop-runner.git"}
+            ],
+            "require": {
+              "voku/agent-loop-runner": "${RUNNER_VERSION}"
+            },
+            "minimum-stability": "dev",
+            "prefer-stable": true
+          }
+          JSON
+          composer update --no-dev --no-interaction --prefer-dist --no-progress
+
+      - name: Assert released production dependency graph
+        shell: bash
+        run: |
+          consumer="${RUNNER_TEMP}/agent-loop-runner-consumer"
+          php -r '
+          $lock = json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+          $loop = null;
+          foreach ($lock["packages"] as $package) {
+              $name = $package["name"];
+              $version = $package["version"];
+              if ($name === "voku/agent-loop-runner") {
+                  continue;
+              }
+              if (str_starts_with($version, "dev-") || str_ends_with($version, "-dev")) {
+                  fwrite(STDERR, "Non-released production dependency: {$name} {$version}\n");
+                  exit(1);
+              }
+              if ($name === "voku/agent-loop") {
+                  $loop = $package;
+              }
+          }
+          if ($loop === null || !preg_match("/^0\\.18\\.[0-9]+$/", $loop["version"])) {
+              fwrite(STDERR, "Expected released agent-loop 0.18.x in consumer lock.\n");
+              exit(1);
+          }
+          ' "$consumer/composer.lock"
+
+      - name: Replay install from the generated consumer lock
+        shell: bash
+        run: |
+          consumer="${RUNNER_TEMP}/agent-loop-runner-consumer"
+          rm -rf "$consumer/vendor"
+          cd "$consumer"
+          composer install --no-dev --no-interaction --prefer-dist --no-progress
+
+      - name: Run installed Runner doctor in a clean Git repository
+        shell: bash
+        run: |
+          consumer="${RUNNER_TEMP}/agent-loop-runner-consumer"
+          project="${RUNNER_TEMP}/agent-loop-runner-project"
+          mkdir -p "$project"
+          git -C "$project" init -q
+          git -C "$project" config user.name 'Runner Consumer Proof'
+          git -C "$project" config user.email 'runner-proof@example.invalid'
+          printf 'fixture\n' > "$project/README.md"
+          git -C "$project" add README.md
+          git -C "$project" commit -qm 'fixture'
+          cd "$project"
+          "$consumer/vendor/bin/agent-loop-runner" doctor > doctor.json
+          php -r '
+          $doctor = json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+          if (($doctor["execution_gateway"] ?? null) !== "available") {
+              fwrite(STDERR, "Installed Runner cannot see the public agent-loop execution gateway.\n");
+              exit(1);
+          }
+          if (!isset($doctor["php"], $doctor["git"], $doctor["host_codex"], $doctor["host_claude"], $doctor["host_opencode"])) {
+              fwrite(STDERR, "Installed Runner doctor projection is incomplete.\n");
+              exit(1);
+          }
+          ' "$project/doctor.json"
