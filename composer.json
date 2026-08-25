@@ -6,7 +6,7 @@
   "homepage": "https://github.com/voku/agent-loop-runner",
   "require": {
     "php": "^8.3",
-    "voku/agent-loop": "dev-main"
+    "voku/agent-loop": "^0.18.0"
   },
   "require-dev": {
     "phpstan/phpstan": "^2.1",

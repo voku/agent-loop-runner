@@ -1,402 +1,321 @@
-# Codex Online handoff: finish the governed Runner
+# Codex Online handoff: finish production-ready agent-loop-runner
 
-This document is the self-contained continuation point for `voku/agent-loop-runner#1`.
+This is the continuation point for a fresh **single-repository, single-PR Codex Online VM session** on `voku/agent-loop-runner` PR #4.
 
-The intended executor is a fresh Codex Online run with a real Linux/PHP VM and access to **this repository only**. Do not depend on prior chat context.
+Repository and released-package facts at execution time win over this document. Re-ground before editing.
 
-## Start state
+## Hard prerequisite
 
-Work in repository `voku/agent-loop-runner` on branch `feature/governed-runner` (or the PR branch that contains this file).
+Do not begin dependent integration work until the hardened public `voku/agent-loop` execution contract is actually released.
 
-The one-way architecture is fixed:
+The upstream canonical line is:
+
+- `voku/agent-loop` issue #277;
+- canonical PR #280;
+- expected public development line `0.18.x`.
+
+The old Runner dependency on `dev-main` is temporary only. Once the exact upstream tag exists, replace it with the compatible stable constraint and regenerate Composer state from a clean resolution.
+
+If the expected release does not exist or does not contain the typed candidate/artifact observation API, report the exact package/API mismatch. Do **not** recreate Loop internals or scrape `.agent-loop/**` state to work around it.
+
+## Fixed architecture
 
 ```text
 agent-loop-runner
-      ↓
+      |
+      v
   agent-loop
 ```
 
-`agent-loop` is the governance owner. Runner is an optional execution plane. Never add a reverse dependency and do not edit `voku/agent-loop` from this task.
+Never the reverse.
 
-Before implementation, verify that the installed `voku/agent-loop` exposes the typed `voku\AgentLoop\Execution\ExecutionGateway` API from `voku/agent-loop#270`. If the dependency does not contain that API, stop and report the exact Composer/ref mismatch instead of recreating or scraping the protocol in Runner.
+`agent-loop` remains authoritative for:
 
-## What already exists
+- Task and Contract identity;
+- Contract revision;
+- approval;
+- governed Run;
+- resolved versioned ExecutionPlan;
+- role semantics and legal transitions;
+- owner candidate/artifact/validation evidence;
+- Attention authority;
+- review / Learning / verify / close truth;
+- whether a StageResult may advance execution.
 
-Do not rewrite these merely to make the code feel more locally authored.
+Runner owns only execution-plane observations:
 
-### Package/config
+- configured host discovery;
+- child process lifecycle;
+- cwd/environment projection;
+- isolated Run worktree lifecycle;
+- runtime locks/journals;
+- stdout/stderr diagnostics;
+- timeout/cancellation;
+- restart/reconciliation;
+- Git-native candidate observation;
+- narrow artifact observation;
+- submission of observations/results through typed public Loop APIs;
+- scheduling only the next already-authorized stage.
 
-- PHP `^8.3`, strict types, PHPUnit 11.5, PHPStan max.
-- `RunnerLayout` owns `.agent-loop-runner/config.json`, `runtime/`, `worktrees/`, and `logs/` paths.
-- `Config/RunnerConfig.php` owns explicit role-to-host mapping, timeout configuration, and environment-variable **name** allowlisting. Secret values are runtime inputs and must not be persisted.
+Runner may execute work. It may never declare itself correct.
 
-### Process boundary
-
-- `Process/ProcessRequest.php`
-- `Process/ProcessResult.php`
-- `Process/ProcessSupervisor.php`
-- `Process/ForegroundProcessSupervisor.php`
-- `Process/EnvironmentProjector.php`
-
-The foreground supervisor uses argv arrays rather than shell-concatenated commands, captures stdout/stderr independently, enforces a timeout, and uses a separate process group on supported Unix systems so descendants can be terminated.
-
-### Host adapters
-
-The adapters are intentionally thin translation layers:
-
-- Codex: `codex exec --ephemeral -`, prompt via stdin.
-- Claude Code: `claude -p <prompt>`.
-- OpenCode: `opencode run <prompt>`.
-
-Relevant files are under `src/Host/`.
-
-Do not add model names, reasoning knobs, `--yolo`, dangerous bypass flags, implicit permission elevation, or provider-specific workflow authority. Provider exit code/output are observations only.
-
-### Git/workspace primitives
-
-- `Git/GitCommand.php`
-- `Git/GitCommandResult.php`
-- `Workspace/GitWorktreeService.php`
-- `Workspace/WorkspaceLease.php`
-- `Workspace/WorkspaceCandidateHasher.php`
-
-Current invariants:
-
-- one isolated detached Git worktree per governed Run;
-- exact Git base commit required;
-- workspace must belong to the same Git common directory as the source repository;
-- agent-created commits are rejected; `HEAD` stays at the governed base;
-- Runner never mutates the user's source checkout;
-- dirty candidate work is never silently reset or deleted;
-- volatile Runner paths are repository-locally ignored without forcing `config.json` to be ignored;
-- candidate hashing covers exact base commit, full tracked binary diff, NUL-safe untracked paths, and untracked file/symlink contents.
-
-`WorkspaceCandidateHasher::hash()` returns:
+These remain non-authoritative:
 
 ```text
-git-worktree-v1:<base-commit>:sha256:<digest>
+process exit 0
+model says done
+model says tests pass
+completion JSON exists
+model-provided candidate identity
+model-provided artifact reference by itself
+model-provided validation reference
+Runner log path
+Runner journal state
 ```
 
-## Authoritative agent-loop protocol
-
-Consume the typed API only. Never parse `.agent-loop/**`, human CLI output, Recall files, or terminal prose to reconstruct workflow truth.
-
-The expected API surface includes:
-
-```php
-$gateway = new ExecutionGateway($projectRoot);
-$projection = $gateway->projection($taskId);
-$bundle = $gateway->prepareStage($taskId, $stageId);
-$projection = $gateway->submitStageResult($stageResult);
-$projection = $gateway->resolveAttention($taskId, $attentionId);
-$projection = $gateway->runDeterministicStage($taskId, 'verify');
-```
-
-`StageExecutionBundle` is the only execution input authority supplied to Runner. It contains the exact task/Run/Contract/plan/stage/attempt binding, role, mutation permission, canonical repository root, captured Git base, prior candidate revision, scope, validation requirements, prior handoff, accepted outcomes, prompt and completion marker.
-
-For agent stages the final non-empty host-output line must use the exact marker published by the bundle:
+Runner-private state remains private:
 
 ```text
-AGENT_LOOP_STAGE_RESULT {"outcome":"...","summary":"...","artifact_references":[],"validation_references":[]}
+.agent-loop-runner/**
 ```
 
-Runner parses this as a candidate result. It does **not** infer success from exit `0`, prose such as “tests passed”, or file presence.
+Do not teach Loop those paths.
 
-## Candidate revision reconciliation
+## Current PR
 
-This distinction matters:
+Canonical Runner continuation:
 
-- Initial `StageExecutionBundle::candidateRevision` may be the exact base commit.
-- After a mutating stage, Runner publishes `WorkspaceCandidateHasher::hash(...)` as the new candidate revision.
-- Read-only stages must leave the candidate unchanged. If a read-only host changes the worktree, fail closed and preserve evidence; never bless that mutation by silently updating the candidate.
-- When the authoritative candidate is still the base commit, require a clean worktree.
-- When the authoritative candidate is a `git-worktree-v1:` value, recompute the workspace hash and require exact equality before continuing.
+```text
+PR #4
+branch: fix/production-execution-contract
+```
 
-## The critical exactly-once invariant
+It is a continuation of merged PR #3. Obsolete draft PR #2 is closed.
 
-Runner-local state is restart bookkeeping, never governance truth.
+Do not reopen or port #2 wholesale.
+
+## Already implemented on PR #4
+
+Verify, do not blindly rewrite:
+
+- private-index Git tree candidate observation instead of free-form worktree digest strings;
+- exact governed base `HEAD` requirement;
+- no commit/ref/push solely to obtain candidate identity;
+- typed gateway port for candidate and artifact observations;
+- rejection of model-provided validation authority;
+- workspace-relative artifact observation with traversal/symlink/missing-file fail-closed behavior;
+- normalized bounded completion envelope persisted for restart;
+- diagnostic logs remain non-authoritative;
+- post-process candidate/evidence/result restart checkpoints;
+- exact existing-worktree reopening after post-process crashes;
+- same-Task/Run execution lock;
+- expanded runtime journal transition and cancellation handling;
+- real-Git integration coverage for tracked changes, deletes, executable mode, binary files, untracked files, unusual names, symlinks where available, large files, deterministic identity and source/index isolation;
+- real Loop + real Runner coordinator + real temporary Git repository + fake host E2E fixture;
+- expanded crash/restart matrix.
+
+At the time this handoff was refreshed, PR #4 still depended on upstream `dev-main` and therefore was intentionally not production-ready.
+
+## Candidate observation contract
+
+The model does not choose candidate identity.
+
+For a mutating stage Runner should:
+
+```text
+exact governed Run worktree
+  -> keep HEAD at exact governed base
+  -> create private temporary Git index
+  -> read-tree <base>
+  -> git add -A through GIT_INDEX_FILE
+  -> git write-tree
+  -> repeat/verify stable snapshot where needed
+  -> candidate = git-tree-v1:<exact-base>:<tree-object>
+  -> submit typed StageCandidateObservation
+  -> Loop validates current Task/Run/Contract/plan/stage/attempt/previous-candidate binding
+  -> Loop creates owner candidate evidence
+```
+
+The private Git index must not replace or mutate either the source checkout index or the linked Run-worktree index.
+
+No commit is required.
+No ref is required.
+No push is allowed.
+
+Read-only stages must preserve the current candidate exactly. Workspace mutation in a read-only stage is `STALE_WORKSPACE` and evidence must be preserved for diagnosis.
+
+The candidate mechanism must deliberately cover Git semantics rather than manually approximating them:
+
+- tracked modifications;
+- binary changes;
+- deletes;
+- renames as represented by the resulting tree;
+- executable mode changes;
+- untracked files;
+- unusual/NUL-safe filenames through Git argv/index semantics;
+- symlinks where the platform supports them;
+- large files without custom unsafe whole-repository buffering.
+
+Same workspace state must produce the same candidate. Changed state must produce a different candidate. Restart after candidate observation must reproduce the same identity or fail closed.
+
+## Artifact and validation authority
+
+Model completion output may request artifact paths, but those strings are not evidence.
+
+Runner may interpret an allowed artifact request only as a candidate workspace-relative regular-file observation, verify the actual path/bytes in the Run worktree, hash actual content, and submit a typed `StageArtifactObservation`.
+
+Loop then validates the exact current execution/candidate binding and creates the owner evidence reference.
+
+Invented references must fail closed.
+
+Validation is stricter:
+
+- do not forward model claims as validation authority;
+- do not turn Runner logs into validation evidence;
+- external Runner code must not mint Loop validation truth;
+- deterministic Loop-owned validation/verify is authoritative.
+
+## Attention
+
+Required flow:
+
+```text
+agent stage -> NEEDS_CLARIFICATION
+  -> Loop creates Attention
+  -> Runner reports WAITING_FOR_ATTENTION and stops
+  -> human/owner workflow resolves Attention
+  -> Loop records authoritative resolution
+  -> fresh projection exposes a new authorized attempt
+  -> Runner may resume
+```
+
+Runner must not resolve human-owned Attention merely because it knows the id.
+
+## Restart invariant
 
 On every `run` and `resume`:
 
 ```text
-load local runtime journal
--> fetch fresh ExecutionProjection from agent-loop
--> reconcile identities and current stage/attempt
--> prefer agent-loop on every disagreement
--> resume only the exact still-authorized action
+load Runner observation
+-> fetch fresh Loop ExecutionProjection
+-> Loop wins every disagreement
+-> reconcile exact Task/Run/Contract/plan/stage/attempt
+-> resume only an unambiguously authorized action
 ```
 
-The dangerous crash window is:
+Required crash boundaries:
 
 ```text
-StageResult persisted locally
--> submitStageResult()
--> agent-loop accepts/advances
--> Runner crashes before recording acceptance
+A before process start
+B after process start
+C after process exit
+D after candidate observation
+E after artifact/evidence registration
+F after StageResult persistence
+G after Loop accepts StageResult
+H before Runner records accepted reconciliation
 ```
 
-Design this so the stage is not executed twice.
-
-Required approach:
-
-1. Allocate and durably persist a stable `submission_id` **before** the host process can produce a submit-ready result.
-2. After process completion and candidate hashing, durably persist the exact full `StageResult` before calling `submitStageResult()`.
-3. On resume, fetch fresh `ExecutionProjection` first.
-4. If agent-loop has already advanced past that exact stage/attempt, mark the local attempt reconciled/accepted without rerunning the host.
-5. If agent-loop still exposes that same stage/attempt and a complete persisted StageResult exists, resubmit that exact StageResult with the same `submission_id` before considering another host invocation. `agent-loop` makes duplicate identical submissions idempotent.
-6. If task/Run/Contract/plan/stage/attempt identities conflict, stop with a machine-distinguishable stale-state failure. Never “repair” authority locally.
-
-Use atomic writes for runtime JSON. A partially written journal must not be interpreted as valid state.
-
-## Remaining implementation, in order
-
-### 1. Establish a green executable package baseline
-
-Create the missing binary and application layer:
+Critical invariant:
 
 ```text
-bin/agent-loop-runner
-src/Application/
-src/Runtime/
-src/Execution/
-tests/Unit/
-tests/Integration/
-tests/Fixtures/
+G -> H restart MUST NOT execute the host again
 ```
 
-Implement command routing and useful exit codes. `composer ci` must become green on PHP 8.3/8.4/8.5.
+A process-started journal without proven terminal process evidence is not permission to execute a second host process. Fail closed unless reconciliation proves the old process outcome.
 
-### 2. Completion-envelope parser
+A post-process restart must not call ordinary workspace acquisition if that path would require the old authoritative candidate to equal an already legitimately changed workspace. Reopen only the exact existing Run worktree and validate its identity/base/candidate checkpoint.
 
-Implement a strict parser for the bundle-provided marker:
+Persist normalized bounded protocol data required for replay. Do not replay authority from potentially truncated diagnostic logs.
 
-- use the final non-empty stdout line only;
-- exact marker match;
-- one JSON object on that line;
-- allowed outcome must be one of `StageExecutionBundle::acceptedOutcomes`;
-- summary must be bounded/non-empty where appropriate;
-- artifact/validation references must be lists of non-empty strings;
-- duplicate/multiple ambiguous markers fail;
-- malformed JSON fails;
-- output without a valid final envelope is `INVALID_STAGE_RESULT` even when process exit is zero.
+## Cancellation/concurrency invariant
 
-Do not parse arbitrary prose for state.
+At most one Runner reconciliation owner exists per Task/Run.
 
-### 3. `RunWorkspaceManager`
+Read-only stages participate in Run serialization too.
 
-Build the Run-level owner around the existing Git primitives:
+Cancellation must:
 
-- exactly one worktree per Run;
-- exclusive mutating lease;
-- reusable sequential candidate tree across stages;
-- lease identity includes task, Run, base commit, stage, attempt and mutation permission;
-- stale/mismatched lease fails closed;
-- no fallback to active checkout;
-- cleanup only after safe state and never destroys dirty candidate evidence.
+- act only on an exact current `ProcessStarted` observation;
+- verify process identity/fingerprint to prevent PID-reuse kills;
+- verify process-group ownership before negative-PID signalling;
+- serialize the cancellation journal transition against coordinator writes;
+- never mark the workflow stage complete;
+- never allow a stale same-attempt coordinator write to overwrite a recorded cancellation;
+- fail closed on cancel/natural-exit ambiguity.
 
-Add real temporary Git integration tests, including spaces/tabs/unusual filenames.
+Review timeout termination for the same process-group safety invariant. Do not assume `setsid` succeeded merely because a negative PID exists.
 
-### 4. Runtime journal and reconciliation
+## Completion protocol and host safety
 
-Create typed Runner runtime records for at least:
+Retain/falsify the strict parser guarantees:
 
-```text
-prepared
-process_started
-process_exited
-result_persisted
-submission_attempted
-reconciled_accepted
-waiting_for_attention
-failed
-cancelled
-```
+- exactly one completion marker;
+- marker is the final non-empty stdout line;
+- one JSON object;
+- duplicate JSON members rejected;
+- only exact expected fields;
+- legal outcome only;
+- bounded summary;
+- bounded reference count and reference length;
+- valid Unicode behavior;
+- hostile-looking prompt/summary remains data;
+- large stdout/stderr diagnostics are bounded;
+- no shell interpolation for host argv;
+- explicit canonical cwd;
+- projected allowlisted environment;
+- no unsafe auto-approval/yolo flags;
+- secret-like environment values are not persisted in journal metadata.
 
-Do not mirror agent-loop's state machine. Store only Runner observations needed for exact restart.
+## Real host adapters
 
-Persist enough to diagnose/reconcile:
+Adapters remain thin runtime translation layers:
 
-- task/run/contract revision/plan digest;
-- stage/attempt;
-- stable submission ID;
-- host ID/version;
-- workspace lease/base/candidate fingerprints;
-- process PID/timestamps/exit/timeout;
-- stdout/stderr log references;
-- exact persisted StageResult when one exists.
+- Codex;
+- Claude Code;
+- OpenCode.
 
-Never persist allowlisted secret values.
+For each binary actually available in the VM:
 
-### 5. Execution coordinator
+1. record the exact version;
+2. inspect current CLI help sufficiently to verify the adapter argv is still valid;
+3. run a tiny disposable non-destructive fixture;
+4. verify cwd/stdin-or-argv prompt delivery/output/timeout/completion behavior.
 
-Implement one orchestration path used by both `run` and `resume`:
+If unavailable, record `HOST_UNAVAILABLE` with probe evidence.
 
-```text
-projection
--> Attention? stop
--> complete? stop successfully
--> deterministic stage? ask ExecutionGateway to run it
--> agent stage? prepare bundle
--> reconcile/create Run worktree
--> validate candidate workspace against bundle candidate
--> choose configured host for role
--> persist attempt/submission ID
--> execute process
--> persist logs/result observation
--> enforce mutation permission
--> parse completion envelope
--> compute/preserve candidate revision
--> persist exact StageResult
--> submit through ExecutionGateway
--> fetch/reconcile fresh projection
--> continue next authorized stage
-```
+Deterministic fake executable tests remain mandatory regardless of provider availability.
 
-No recursive unbounded loop. Make limits explicit even though profiles are finite.
+Do not weaken CI merely because a provider binary is missing.
 
-### 6. CLI
+## Required VM workflow
 
-Implement:
+### 1. Re-ground
 
 ```bash
-agent-loop-runner doctor
-agent-loop-runner status TASK-123
-agent-loop-runner run TASK-123
-agent-loop-runner resume TASK-123
-agent-loop-runner cancel TASK-123
-agent-loop-runner cleanup TASK-123
+git status --short --branch
+git log --oneline --decorate -20
+git fetch --all --tags --prune
+php -v
+composer --version
+git --version
 ```
 
-Requirements:
+Inspect the actual PR head, `main`, issue #1, installed/tagged `voku/agent-loop` version, Composer constraints and CI state.
 
-- `doctor`: PHP/Git/config/agent-loop API/host availability; no mutation.
-- `status`: projection + Runner observations, clearly distinguishing authority from observation.
-- `run` and `resume`: same reconciliation engine.
-- `cancel`: terminate only the owned process/process group, preserve logs/worktree, never mark stage passed.
-- `cleanup`: fail on active process, Attention requiring evidence, dirty/unreconciled workspace, or uncertain ownership.
+### 2. Prove the upstream prerequisite
 
-Machine-distinguishable failures:
+From a clean Composer resolution, prove that the exact released Loop package provides the candidate/artifact observation API required by this PR.
 
-```text
-HOST_UNAVAILABLE
-PROCESS_FAILED
-PROCESS_TIMEOUT
-INVALID_STAGE_RESULT
-STALE_RUN
-STALE_CONTRACT
-STALE_WORKSPACE
-TRANSITION_REJECTED
-WAITING_FOR_ATTENTION
-```
+Do not use a sibling checkout or path repository to fake this proof.
 
-### 7. Diagnostic logs
+Then replace `dev-main` with the appropriate stable constraint and update `composer.lock`.
 
-Persist stdout and stderr separately below Runner-owned log paths. Runtime JSON should contain references and hashes/metadata, not giant transcripts or secrets.
+Expected shape may be `^0.18.0`, but repository/package evidence wins.
 
-Redact obvious credential-bearing environment metadata. Do not claim arbitrary model prose can be perfectly secret-scanned.
+### 3. Establish baseline
 
-### 8. Tests first-class, not decorative
-
-At minimum prove:
-
-**Process**
-- argv remains data under hostile-looking prompt content;
-- missing binary;
-- exit 0 and nonzero;
-- timeout and descendant termination;
-- stdout/stderr separation;
-- Unicode and large output.
-
-**Workspace**
-- real temporary repository/worktree;
-- exact base;
-- dirty source checkout remains untouched;
-- wrong repository;
-- stale base;
-- read-only mutation detection;
-- untracked paths with spaces/tabs/newlines where Git/platform permit;
-- symlink escape evidence;
-- dirty cleanup refusal.
-
-**Protocol/Runner**
-- no pending stage;
-- unavailable host;
-- malformed completion result;
-- Attention stops execution;
-- process failure does not become pass;
-- rejected StageResult;
-- stale Contract/Run/plan/stage/attempt;
-- crash before process start;
-- crash after process exit;
-- crash after result persistence but before submission;
-- crash after agent-loop acceptance but before local acceptance persistence;
-- exact identical resubmission rather than duplicate host execution.
-
-**Security**
-- no shell command construction;
-- path traversal/project escape rejected;
-- environment injection rejected;
-- secret-like env values absent from runtime state;
-- no Git push/merge/remote mutation;
-- no permission-bypass defaults in adapters.
-
-### 9. Profile E2E fixtures
-
-Use deterministic fake host executables first so CI does not require provider credentials.
-
-Prove complete real Git/Runner/agent-loop orchestration for:
-
-```text
-surgical:
-  investigator -> builder -> reviewer -> verify
-
-standard:
-  investigator -> builder -> correctness-review
-  -> blindspot-review -> verify
-
-hardened:
-  investigator -> builder -> correctness-review -> architecture-review
-  -> hardening -> independent-verification -> blindspot-review -> verify
-```
-
-Exercise `CHANGES_REQUIRED`, clarification/Attention, process failure, and restart.
-
-The deterministic `verify` stage remains executed by `agent-loop`, not by a provider adapter.
-
-### 10. Real host smoke evidence
-
-After deterministic CI is green, run disposable local fixture smoke tests against installed/available:
-
-- Codex
-- Claude Code
-- OpenCode
-
-A provider unavailable in the VM must be reported honestly; do not fabricate runtime evidence or weaken CI to fake availability. Adapter contract/unit tests remain mandatory regardless.
-
-### 11. Installed-consumer dogfood
-
-Create a clean disposable Composer consumer that installs Runner as a dependency and drives a governed fixture through the public binary/API only. Do not rely on repository-internal paths.
-
-Then use Runner on one real `agent-loop`-style task/issue and preserve the exact evidence in the PR summary.
-
-## Blind-spot analysis before implementation
-
-Before editing, explicitly inspect and challenge at least these assumptions using repository/code/runtime evidence:
-
-1. whether `ForegroundProcessSupervisor` really returns the child exit code after `proc_get_status()` polling on all supported PHP versions;
-2. whether timeout process-group termination is safe when `setsid`/POSIX support differs;
-3. whether host adapters' current argv still matches installed CLI versions in the VM;
-4. whether `WorkspaceCandidateHasher` handles binary data and unusual path bytes without normalization bugs;
-5. whether Runner can detect a read-only stage that modified the workspace without destroying the evidence;
-6. whether local runtime atomicity is sufficient for every crash boundary;
-7. whether cancellation can race with natural process exit;
-8. whether the configured project root and bundle repository root can diverge or symlink-alias the same location;
-9. whether a stale Runner worktree from a prior Run could be accidentally reused;
-10. whether any proposed convenience would cause Runner to duplicate governance already owned by `agent-loop`.
-
-Record only evidence-backed findings. Fix material issues inside this repo as part of the implementation.
-
-## Commands to run repeatedly
+Run:
 
 ```bash
 composer install --no-interaction --prefer-dist
@@ -406,42 +325,238 @@ vendor/bin/phpstan analyse --configuration=phpstan.neon.dist --memory-limit=512M
 composer ci
 ```
 
-Use temporary repositories for integration tests. Do not depend on the developer's current checkout state.
+Classify failures:
+
+```text
+PRE_EXISTING
+INTRODUCED
+UNKNOWN_ORIGIN
+```
+
+### 4. Finish/falsify implementation
+
+Do not stop after making tests compile against the new API.
+
+Attempt to break:
+
+- stale candidate replay after `CHANGES_REQUIRED`;
+- wrong base/current candidate lineage;
+- candidate TOCTOU between observation/evidence/submission;
+- artifact traversal/symlink escape;
+- invented model artifact/validation refs;
+- crash after every checkpoint A-H;
+- G->H host duplication;
+- concurrent same-Run invocation;
+- cancel vs natural exit;
+- PID reuse;
+- journal write/cancel races;
+- workspace alias/path escape;
+- source checkout/index mutation;
+- hidden Git commit/ref creation;
+- unbounded logs/protocol fields;
+- secret persistence;
+- host command injection;
+- stale local runtime overriding fresh Loop projection.
+
+Add focused regression tests for real defects.
+
+### 5. Real profile E2E
+
+Using real temporary Git repositories and deterministic fake executable hosts, prove the public typed boundary end-to-end for:
+
+```text
+surgical
+standard
+hardened
+```
+
+At least one suite must contain all of:
+
+```text
+real released agent-loop governance
++ real agent-loop-runner coordinator
++ real temporary Git repository/worktree
++ fake external executable process
+```
+
+Exercise:
+
+- PASS;
+- CHANGES_REQUIRED;
+- NEEDS_CLARIFICATION;
+- resume;
+- deterministic verify;
+- read-only workspace enforcement;
+- actual mutating candidate observation;
+- actual artifact observation and owner reference acceptance.
+
+Do not unit-test the coordinator by bypassing the real typed gateway for the only integration proof.
+
+### 6. Installed consumer
+
+Create a clean temporary Composer consumer using tagged packages only.
+
+Prove:
+
+- `agent-loop` works without Runner installed;
+- Runner installs with the released Loop version;
+- dependency direction is Runner -> Loop only;
+- installed `vendor/bin/agent-loop-runner` autoloads and runs;
+- no repository-root assumptions;
+- no sibling checkout assumptions;
+- supported PHP versions remain green.
+
+### 7. Real governed dogfood task
+
+Required before DONE.
+
+Select one real small safe `agent-loop`-style issue/task, or create the smallest justified dogfood task in this repository if no suitable task exists.
+
+Use the authoritative Loop lifecycle:
+
+```text
+PLAN
+-> APPROVE
+-> execution profile
+-> ENTER
+-> Runner agent stages
+-> deterministic validation
+-> review
+-> Learning
+-> verify/close
+```
+
+Capture exact Task, Run, plan digest, stage attempts, worktree/candidate evidence, owner evidence, validation, review and close state.
+
+Runner executing a process is not sufficient. Loop must legitimately reach completed workflow state.
+
+## Exact-head merge gates
+
+Before making PR #4 ready or merging:
+
+- stable released Loop constraint, no production `dev-main` leakage;
+- `composer validate --strict` green;
+- PHPUnit green;
+- PHPStan max green;
+- PHP 8.3/8.4/8.5 CI green where supported;
+- real-Git integration tests green;
+- restart/concurrency/cancel tests green;
+- surgical/standard/hardened E2E green;
+- installed-consumer green;
+- provider smoke results recorded honestly;
+- real governed dogfood task completed;
+- no unresolved review blocker;
+- independent blind-spot pass clean.
+
+Earlier green commits do not count after the head moves.
 
 ## Explicit non-goals
 
-Do not add:
+Do not add merely because context is warm:
 
-- tmux dependency;
-- dashboard/cockpit;
+- general DAG engine;
 - parallel mutating agents;
-- arbitrary DAG/workflow DSL;
-- automatic model/profile selection;
-- token/cost optimizer;
+- automatic model selection;
+- automatic profile selection;
+- tmux architecture;
+- dashboard;
 - remote worker fleet;
-- Docker/Kubernetes orchestration;
-- Git push, PR merge, auto-commit handoff, or release mutation;
-- another durable Learning/Session/Kanban store;
-- parsing of private `.agent-loop/**` artifacts;
-- source copied from SwarmForge without separately verified licensing/provenance.
+- Kubernetes/Docker orchestration framework;
+- generic workflow language;
+- token-price optimizer;
+- auto-merge engine;
+- Runner Git push support;
+- transcript-derived workflow truth;
+- new memory/session/kanban system;
+- generic typed blocker DAG.
 
-## Definition of done for this continuation
+## Blind-spot pass
 
-Do not stop at “implemented”. Continue until evidence proves:
+After normal tests are green, assume the implementation is still wrong.
 
-- `composer ci` is green on supported PHP versions;
-- Runner consumes only typed public `agent-loop` execution APIs;
-- user's checkout stays untouched during integration/E2E tests;
-- exactly one isolated worktree is reused per Run;
-- process output never becomes workflow authority;
-- exact-once restart behavior is tested around the acceptance crash window;
-- clarification produces/observes Attention and execution stops;
-- stale Contract/Run/plan/workspace fail closed;
-- `surgical`, `standard`, and `hardened` profiles pass deterministic E2E fixtures;
-- all three adapter contracts are production-tested, with real CLI smoke evidence when binaries are actually available;
-- no push/merge/permission-bypass behavior exists by default;
-- installed-consumer dogfood passes;
-- architecture/security/restart/host-adapter docs match reality;
-- PR summary names exact commands, environment, and any provider smoke test that could not be run.
+Explicitly attempt to falsify:
 
-If an upstream `agent-loop` defect is discovered, do **not** modify another repository from this task. Produce a minimal, reproducible blocker with the public API call, expected behavior, actual behavior and evidence, then stop only that blocked slice while completing all independent Runner work.
+- semantic owner boundary;
+- model output becoming authority indirectly;
+- forged/stale candidate identity;
+- stale owner evidence replay;
+- post-observation TOCTOU;
+- restart duplicate execution;
+- cancellation/PID/process-group safety;
+- source/index mutation;
+- workspace/symlink escape;
+- Git object/ref side effects;
+- command injection;
+- secret persistence;
+- installed-consumer autoload assumptions;
+- dev-main leakage;
+- CI claims from stale SHA.
+
+## Completion
+
+Do not stop at implementation prose.
+
+`DONE` requires the exact production evidence above, including installed-consumer and one real governed dogfood task.
+
+A genuine unavailable optional provider is not a global blocker; record it and continue independent work.
+
+A genuine upstream/repository/admin prerequisite blocks only dependent work.
+
+## Final report
+
+Return:
+
+```text
+STATUS: DONE | BLOCKED
+
+REPOSITORY STATE
+- starting SHA
+- final SHA
+- branch
+- clean/dirty
+
+UPSTREAM CONTRACT
+- exact agent-loop version/tag installed
+- public API proof
+
+IMPLEMENTATION
+- concrete behavior
+
+AUTHORITY PROOF
+- candidate
+- artifact
+- validation
+- Attention
+
+RESTART / CONCURRENCY
+- A-H results
+- G->H no-rerun proof
+- lock/cancel/PID evidence
+
+PROFILE E2E
+- surgical
+- standard
+- hardened
+
+HOST SMOKES
+- Codex
+- Claude
+- OpenCode
+
+INSTALLED CONSUMER
+- exact versions and commands
+
+REAL DOGFOOD TASK
+- exact Task/Run/lifecycle evidence
+
+VALIDATION / CI
+- exact commands, final head, workflow ids
+
+REMAINING BLOCKERS
+- genuine external blockers only
+
+BLIND-SPOT FINDINGS
+- defects found after the implementation initially looked ready
+```
+
+Work autonomously. Use the real VM and executable evidence. Do not ask for ordinary intermediate approval.

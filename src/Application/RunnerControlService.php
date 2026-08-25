@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace voku\AgentLoopRunner\Application;
 
-use DateTimeImmutable;
 use RuntimeException;
 use voku\AgentLoop\Execution\ExecutionGateway;
 use voku\AgentLoop\Execution\ExecutionProjection;
@@ -68,44 +67,26 @@ final readonly class RunnerControlService
             throw new RuntimeException('PROCESS_FAILED: no owned active process is recorded.');
         }
 
-        $pid = $attempt->process['pid'] ?? null;
-        $fingerprint = $attempt->process['process_fingerprint'] ?? null;
-        if (!is_int($pid) || !is_string($fingerprint)) {
-            throw new RuntimeException('PROCESS_FAILED: active process identity is incomplete.');
-        }
+        return $journal->cancel($attempt, static function (RuntimeAttempt $current): bool {
+            $pid = $current->process['pid'] ?? null;
+            $fingerprint = $current->process['process_fingerprint'] ?? null;
+            if (!is_int($pid)
+                || !is_string($fingerprint)
+                || !hash_equals($fingerprint, ProcessIdentity::fingerprint($pid) ?? '')) {
+                throw new RuntimeException('PROCESS_FAILED: owned process identity is stale.');
+            }
+            if (PHP_OS_FAMILY === 'Windows'
+                || !function_exists('posix_kill')
+                || !function_exists('posix_getpgid')) {
+                throw new RuntimeException('PROCESS_FAILED: process-group cancellation is unavailable.');
+            }
+            $groupId = posix_getpgid($pid);
+            if (!is_int($groupId) || $groupId !== $pid) {
+                throw new RuntimeException('PROCESS_FAILED: owned process is not in an isolated process group.');
+            }
 
-        $currentFingerprint = ProcessIdentity::fingerprint($pid);
-        if (!is_string($currentFingerprint) || !hash_equals($fingerprint, $currentFingerprint)) {
-            throw new RuntimeException('PROCESS_FAILED: owned process identity is stale.');
-        }
-        if (PHP_OS_FAMILY === 'Windows' || !function_exists('posix_kill')) {
-            throw new RuntimeException('PROCESS_FAILED: process-group cancellation is unavailable.');
-        }
-
-        $signal = defined('SIGTERM') ? SIGTERM : 15;
-        if (!posix_kill(-$pid, $signal)) {
-            throw new RuntimeException('PROCESS_FAILED: owned process no longer exists.');
-        }
-
-        $cancelled = new RuntimeAttempt(
-            $attempt->taskId,
-            $attempt->runId,
-            $attempt->contractRevision,
-            $attempt->executionPlanDigest,
-            $attempt->stageId,
-            $attempt->attempt,
-            $attempt->hostId,
-            $attempt->workspaceIdentity,
-            $attempt->submissionId,
-            AttemptStatus::Cancelled,
-            $attempt->candidateRevision,
-            $attempt->stageResult,
-            $attempt->process,
-            (new DateTimeImmutable())->format(DATE_ATOM),
-        );
-        $journal->save($cancelled);
-
-        return $cancelled;
+            return posix_kill(-$pid, defined('SIGTERM') ? SIGTERM : 15);
+        });
     }
 
     public function cleanup(string $taskId): void

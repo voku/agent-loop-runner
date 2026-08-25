@@ -17,24 +17,38 @@ final readonly class GitCommand
     ) {
     }
 
-    /** @param list<string> $arguments */
-    public function run(string $workingDirectory, array $arguments, int $timeoutSeconds = 30): GitCommandResult
-    {
+    /**
+     * @param list<string> $arguments
+     * @param array<string, string> $environment
+     */
+    public function run(
+        string $workingDirectory,
+        array $arguments,
+        int $timeoutSeconds = 30,
+        array $environment = [],
+    ): GitCommandResult {
         $result = $this->processSupervisor->run(new ProcessRequest(
             ['git', ...$arguments],
             $workingDirectory,
             '',
-            $this->environment,
+            array_replace($this->environment, $environment),
             $timeoutSeconds,
         ));
 
         return new GitCommandResult($result->exitCode, $result->stdout, $result->stderr);
     }
 
-    /** @param list<string> $arguments */
-    public function requireSuccess(string $workingDirectory, array $arguments, int $timeoutSeconds = 30): GitCommandResult
-    {
-        $result = $this->run($workingDirectory, $arguments, $timeoutSeconds);
+    /**
+     * @param list<string> $arguments
+     * @param array<string, string> $environment
+     */
+    public function requireSuccess(
+        string $workingDirectory,
+        array $arguments,
+        int $timeoutSeconds = 30,
+        array $environment = [],
+    ): GitCommandResult {
+        $result = $this->run($workingDirectory, $arguments, $timeoutSeconds, $environment);
         if (!$result->successful()) {
             $stderr = trim($result->stderr);
             throw new RuntimeException(sprintf(
