@@ -28,6 +28,17 @@ agent-loop-runner cleanup <task-id>
 
 `run` and `resume` use the same reconciliation path. A nonblocking per-task execution lock prevents concurrent Runner processes from executing the same governed stage, and every iteration reloads `agent-loop`'s authoritative execution projection before deciding whether a stage may run.
 
+## Typed application API
+
+Non-CLI adapters should use `voku\AgentLoopRunner\Application\RunnerControlService` rather than parse CLI JSON or reconstruct the Runner object graph. It exposes `status()`, `run()`, `resume()`, `cancel()`, and `cleanup()`.
+
+`status()` returns a `RunnerStatus` with two deliberately separate values:
+
+- `authority`: the current `agent-loop` `ExecutionProjection`;
+- `observation`: the optional Runner-private `RuntimeAttempt`.
+
+A process exit, PID, host ID, workspace identity, or journal status therefore stays observation. Only `agent-loop` remains execution/workflow authority.
+
 ## State
 
 Runner-private state lives under `.agent-loop-runner/` in the target project:
