@@ -21,7 +21,7 @@ final readonly class ProcessIdentity
         } catch (RuntimeException) {
             return null;
         }
-        if (!is_string($stat) || $stat === '') {
+        if ($stat === '') {
             return null;
         }
         $close = strrpos($stat, ')');
