@@ -49,6 +49,7 @@ final readonly class RunnerConfig
         if (!is_string($json)) {
             throw new RuntimeException('Unable to read runner config: ' . $path);
         }
+        $json = preg_replace('/^\xEF\xBB\xBF/', '', $json) ?? $json;
         try {
             $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException $exception) {
