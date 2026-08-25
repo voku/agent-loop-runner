@@ -8,13 +8,44 @@ on:
       - integrate/production-execution-contract-0.18
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: runner-ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  refresh-lock:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/integrate/production-execution-contract-0.18'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          extensions: posix
+          tools: composer:v2
+
+      - name: Resolve released agent-loop dependency
+        run: composer update voku/agent-loop --with-dependencies --no-interaction --prefer-dist --no-progress
+
+      - name: Commit generated lock when changed
+        shell: bash
+        run: |
+          if git diff --quiet -- composer.lock; then
+            echo 'composer.lock already current'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add composer.lock
+          git commit -m 'chore: lock released agent-loop 0.18'
+          git push origin HEAD:integrate/production-execution-contract-0.18
+
   test:
     runs-on: ubuntu-latest
     strategy:
@@ -34,16 +65,8 @@ jobs:
           extensions: posix
           tools: composer:v2
 
-      - name: Update released agent-loop dependency
-        run: composer update voku/agent-loop --with-dependencies --no-interaction --prefer-dist --no-progress
-
-      - name: Upload generated lock
-        if: matrix.php == '8.3'
-        uses: actions/upload-artifact@v4
-        with:
-          name: composer-lock
-          path: composer.lock
-          if-no-files-found: error
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Validate package
         run: composer validate --strict
