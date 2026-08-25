@@ -70,7 +70,7 @@ final readonly class RunnerControlService
 
         $pid = $attempt->process['pid'] ?? null;
         $fingerprint = $attempt->process['process_fingerprint'] ?? null;
-        if (!is_int($pid) || !is_string($fingerprint) || $fingerprint === '') {
+        if (!is_int($pid) || !is_string($fingerprint)) {
             throw new RuntimeException('PROCESS_FAILED: active process identity is incomplete.');
         }
 
