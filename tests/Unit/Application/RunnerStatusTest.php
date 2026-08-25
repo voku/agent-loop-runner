@@ -20,13 +20,15 @@ final class RunnerStatusTest extends TestCase
 
         $status = new RunnerStatus($authority, $observation);
         $serialized = $status->toArray();
+        $serializedObservation = $serialized['runner_observation'];
+        self::assertNotNull($serializedObservation);
 
         self::assertSame($authority, $status->authority);
         self::assertSame($observation, $status->observation);
         self::assertSame('implementation', $serialized['authority']['current_stage_id']);
-        self::assertSame('codex', $serialized['runner_observation']['host_id'] ?? null);
+        self::assertSame('codex', $serializedObservation['host_id']);
         self::assertArrayNotHasKey('host_id', $serialized['authority']);
-        self::assertArrayNotHasKey('complete', $serialized['runner_observation'] ?? []);
+        self::assertArrayNotHasKey('complete', $serializedObservation);
         self::assertTrue($serialized['controls']['run']);
         self::assertTrue($serialized['controls']['resume']);
         self::assertFalse($serialized['controls']['cancel']);
