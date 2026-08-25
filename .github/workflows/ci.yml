@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - integrate/production-execution-contract-0.18
 
 permissions:
   contents: read
@@ -33,8 +34,8 @@ jobs:
           extensions: posix
           tools: composer:v2
 
-      - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Update released agent-loop dependency
+        run: composer update voku/agent-loop --with-dependencies --no-interaction --prefer-dist --no-progress
 
       - name: Validate package
         run: composer validate --strict
