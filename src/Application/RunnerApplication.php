@@ -9,10 +9,6 @@ use RuntimeException;
 use Throwable;
 use voku\AgentLoop\Execution\ExecutionGateway;
 use voku\AgentLoopRunner\Config\RunnerConfig;
-use voku\AgentLoopRunner\Diagnostics\DiagnosticLogStore;
-use voku\AgentLoopRunner\Execution\AgentLoopExecutionGateway;
-use voku\AgentLoopRunner\Execution\CompletionEnvelopeParser;
-use voku\AgentLoopRunner\Execution\ExecutionCoordinator;
 use voku\AgentLoopRunner\Git\GitCommand;
 use voku\AgentLoopRunner\Host\ClaudeHostAdapter;
 use voku\AgentLoopRunner\Host\CodexHostAdapter;
@@ -20,15 +16,6 @@ use voku\AgentLoopRunner\Host\HostAdapter;
 use voku\AgentLoopRunner\Host\OpenCodeHostAdapter;
 use voku\AgentLoopRunner\Process\EnvironmentProjector;
 use voku\AgentLoopRunner\Process\ForegroundProcessSupervisor;
-use voku\AgentLoopRunner\Process\ProcessIdentity;
-use voku\AgentLoopRunner\RunnerLayout;
-use voku\AgentLoopRunner\Runtime\AttemptStatus;
-use voku\AgentLoopRunner\Runtime\RunExecutionLock;
-use voku\AgentLoopRunner\Runtime\RuntimeAttempt;
-use voku\AgentLoopRunner\Runtime\RuntimeJournal;
-use voku\AgentLoopRunner\Workspace\GitWorktreeService;
-use voku\AgentLoopRunner\Workspace\RunWorkspaceManager;
-use voku\AgentLoopRunner\Workspace\WorkspaceCandidateHasher;
 
 final readonly class RunnerApplication
 {
@@ -69,54 +56,24 @@ final readonly class RunnerApplication
         ];
         foreach ($this->hosts($config) as $id => $host) {
             $availability = $host->probe($supervisor, $this->projectRoot, $environment);
-            $checks['host_' . $id] = $availability->available()
-                ? ($availability->version ?? 'available')
-                : 'unavailable';
+            $checks['host_' . $id] = $availability->available() ? ($availability->version ?? 'available') : 'unavailable';
         }
         $this->json($checks);
 
         return in_array('missing', $checks, true) ? ExitCode::TRANSITION_REJECTED : ExitCode::OK;
     }
 
-    private function status(string $task): int
+    private function status(string $taskId): int
     {
-        $projection = (new ExecutionGateway($this->projectRoot))->projection($task);
-        $local = (new RuntimeJournal(new RunnerLayout($this->projectRoot)))->load($task);
-        $this->json([
-            'authority' => [
-                'task_id' => $projection->taskId,
-                'run_id' => $projection->runId,
-                'contract_revision' => $projection->contractRevision,
-                'execution_plan_digest' => $projection->executionPlanDigest,
-                'current_stage_id' => $projection->currentStageId,
-                'current_attempt' => $projection->currentAttempt,
-                'attention_id' => $projection->attention?->id,
-                'complete' => $projection->complete(),
-                'candidate_revision' => $projection->candidateRevision,
-            ],
-            'runner_observation' => $local?->toArray(),
-        ]);
+        $this->json($this->controls()->status($taskId)->toArray());
 
         return ExitCode::OK;
     }
 
-    private function execute(string $task, string $command): int
+    private function execute(string $taskId, string $command): int
     {
-        $config = RunnerConfig::load($this->projectRoot);
-        $layout = new RunnerLayout($this->projectRoot);
-        $supervisor = new ForegroundProcessSupervisor();
-        $git = new GitCommand($supervisor, (new EnvironmentProjector())->project(['PATH', 'HOME']));
-        $coordinator = new ExecutionCoordinator(
-            new AgentLoopExecutionGateway(new ExecutionGateway($this->projectRoot)),
-            new RuntimeJournal($layout),
-            new RunWorkspaceManager($layout, new GitWorktreeService($git), new WorkspaceCandidateHasher($git)),
-            new CompletionEnvelopeParser(),
-            $config,
-            $this->hosts($config),
-            $supervisor,
-            new DiagnosticLogStore($layout),
-        );
-        $projection = $command === 'run' ? $coordinator->run($task) : $coordinator->resume($task);
+        $controls = $this->controls();
+        $projection = $command === 'run' ? $controls->run($taskId) : $controls->resume($taskId);
         $this->json([
             'task_id' => $projection->taskId,
             'complete' => $projection->complete(),
@@ -126,64 +83,23 @@ final readonly class RunnerApplication
         return ExitCode::OK;
     }
 
-    private function cancel(string $task): int
+    private function cancel(string $taskId): int
     {
-        $journal = new RuntimeJournal(new RunnerLayout($this->projectRoot));
-        $attempt = $journal->load($task);
-        if ($attempt === null || $attempt->status !== AttemptStatus::ProcessStarted || !isset($attempt->process['pid'])) {
-            throw new RuntimeException('PROCESS_FAILED: no owned active process is recorded.');
-        }
-
-        $journal->cancel($attempt, static function (RuntimeAttempt $current): bool {
-            $pid = $current->process['pid'] ?? null;
-            $fingerprint = $current->process['process_fingerprint'] ?? null;
-            if (!is_int($pid)
-                || !is_string($fingerprint)
-                || !hash_equals($fingerprint, ProcessIdentity::fingerprint($pid) ?? '')) {
-                throw new RuntimeException('PROCESS_FAILED: owned process identity is stale.');
-            }
-            if (PHP_OS_FAMILY === 'Windows'
-                || !function_exists('posix_kill')
-                || !function_exists('posix_getpgid')) {
-                throw new RuntimeException('PROCESS_FAILED: process-group cancellation is unavailable.');
-            }
-            $groupId = posix_getpgid($pid);
-            if (!is_int($groupId) || $groupId !== $pid) {
-                throw new RuntimeException('PROCESS_FAILED: owned process is not in an isolated process group.');
-            }
-
-            return posix_kill(-$pid, defined('SIGTERM') ? SIGTERM : 15);
-        });
+        $this->controls()->cancel($taskId);
 
         return ExitCode::OK;
     }
 
-    private function cleanup(string $task): int
+    private function cleanup(string $taskId): int
     {
-        $layout = new RunnerLayout($this->projectRoot);
-        $lock = RunExecutionLock::acquire($layout, $task);
-        try {
-            $journal = new RuntimeJournal($layout);
-            $attempt = $journal->load($task);
-            if ($attempt === null) {
-                throw new RuntimeException('STALE_RUN: no Runner observation identifies a workspace.');
-            }
-            if (!in_array($attempt->status, [AttemptStatus::ReconciledAccepted, AttemptStatus::Cancelled], true)) {
-                throw new RuntimeException('STALE_WORKSPACE: workspace has unreconciled evidence.');
-            }
-            $supervisor = new ForegroundProcessSupervisor();
-            $git = new GitCommand($supervisor, (new EnvironmentProjector())->project(['PATH', 'HOME']));
-            $manager = new RunWorkspaceManager(
-                $layout,
-                new GitWorktreeService($git),
-                new WorkspaceCandidateHasher($git),
-            );
-            $manager->cleanup($attempt->taskId, $attempt->runId);
+        $this->controls()->cleanup($taskId);
 
-            return ExitCode::OK;
-        } finally {
-            $lock->release();
-        }
+        return ExitCode::OK;
+    }
+
+    private function controls(): RunnerControlService
+    {
+        return new RunnerControlService($this->projectRoot);
     }
 
     /** @return array<string, HostAdapter> */
@@ -198,22 +114,20 @@ final readonly class RunnerApplication
 
     private function gitVersion(ForegroundProcessSupervisor $supervisor): string
     {
-        $result = (new GitCommand(
-            $supervisor,
-            (new EnvironmentProjector())->project(['PATH']),
-        ))->run($this->projectRoot, ['--version']);
+        $result = (new GitCommand($supervisor, (new EnvironmentProjector())->project(['PATH'])))
+            ->run($this->projectRoot, ['--version']);
 
         return $result->successful() ? trim($result->stdout) : 'unavailable';
     }
 
     /** @param callable(string): int $callback */
-    private function withTask(?string $task, callable $callback): int
+    private function withTask(?string $taskId, callable $callback): int
     {
-        if ($task === null || trim($task) === '') {
+        if ($taskId === null || trim($taskId) === '') {
             return $this->usage();
         }
 
-        return $callback($task);
+        return $callback($taskId);
     }
 
     private function usage(): int
