@@ -39,6 +39,9 @@ jobs:
       - name: Validate package
         run: composer validate --strict
 
+      - name: Lint provider smoke harness
+        run: php -l tools/provider-smoke.php
+
       - name: PHPUnit
         run: vendor/bin/phpunit
 
