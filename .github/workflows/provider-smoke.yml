@@ -11,6 +11,14 @@ on:
           - codex
           - claude
           - opencode
+      runner:
+        description: Runner with the selected provider binary and authentication available
+        required: true
+        default: ubuntu-latest
+        type: choice
+        options:
+          - ubuntu-latest
+          - self-hosted
       require_available:
         description: Fail when the selected provider binary/auth is unavailable
         required: true
@@ -22,7 +30,9 @@ permissions:
 
 jobs:
   smoke:
-    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
         with:
@@ -40,6 +50,7 @@ jobs:
 
       - name: Create isolated smoke repository
         run: |
+          rm -rf "$RUNNER_TEMP/provider-smoke"
           mkdir -p "$RUNNER_TEMP/provider-smoke"
           git -C "$RUNNER_TEMP/provider-smoke" init -q
           git -C "$RUNNER_TEMP/provider-smoke" config user.name provider-smoke
@@ -72,6 +83,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: provider-smoke-${{ inputs.host }}-${{ github.run_id }}
+          name: provider-smoke-${{ inputs.host }}-${{ inputs.runner }}-${{ github.run_id }}
           path: provider-smoke.json
           if-no-files-found: error
