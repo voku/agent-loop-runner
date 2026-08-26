@@ -1,0 +1,32 @@
+name: Apply 282 current environment dispatch
+
+on:
+  push:
+    branches:
+      - issue-282-current-environment-dispatch
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: issue-282-current-environment-dispatch
+          fetch-depth: 0
+      - name: Apply bounded environment dispatch integration
+        run: python3 .github/scripts/apply-282-current-environment.py
+      - name: Remove temporary repair machinery
+        run: |
+          git rm .github/scripts/apply-282-current-environment.py
+          git rm .github/workflows/apply-282-current-environment.yml
+      - name: Commit current-environment dispatch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add src/Execution/ExecutionCoordinator.php tests/Integration/Execution/ExecutionCoordinatorRestartTest.php tests/Integration/Execution/ProfileEndToEndTest.php tests/Integration/Execution/AgentLoopGatewayEndToEndTest.php
+          git commit -m 'feat(execution): bind dispatch prompts to current environment'
+          git push origin HEAD:issue-282-current-environment-dispatch
