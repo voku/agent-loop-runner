@@ -2,9 +2,6 @@
 
 declare(strict_types=1);
 
-use JsonException;
-use RuntimeException;
-use Throwable;
 use voku\AgentLoopRunner\Application\ExitCode;
 use voku\AgentLoopRunner\Config\RunnerConfig;
 use voku\AgentLoopRunner\Git\GitCommand;
@@ -25,8 +22,8 @@ function emit(array $payload): void
 {
     try {
         fwrite(STDOUT, json_encode($payload, JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
-    } catch (JsonException $exception) {
-        throw new RuntimeException('Unable to encode provider smoke result.', 0, $exception);
+    } catch (\JsonException $exception) {
+        throw new \RuntimeException('Unable to encode provider smoke result.', 0, $exception);
     }
 }
 
@@ -37,7 +34,7 @@ function adapter(string $hostId, RunnerConfig $config): HostAdapter
         'codex' => new CodexHostAdapter($config->binary('codex')),
         'claude' => new ClaudeHostAdapter($config->binary('claude')),
         'opencode' => new OpenCodeHostAdapter($config->binary('opencode')),
-        default => throw new RuntimeException('Unsupported provider smoke host: ' . $hostId),
+        default => throw new \RuntimeException('Unsupported provider smoke host: ' . $hostId),
     };
 }
 
@@ -63,7 +60,7 @@ $git = new GitCommand($supervisor, $environment);
 try {
     $before = $git->requireSuccess($workingDirectory, ['status', '--porcelain=v1', '-z'])->stdout;
     if ($before !== '') {
-        throw new RuntimeException('Provider smoke requires a clean Git working directory.');
+        throw new \RuntimeException('Provider smoke requires a clean Git working directory.');
     }
 
     $host = adapter($hostId, $config);
@@ -115,7 +112,7 @@ try {
         'PROCESS_TIMEOUT' => ExitCode::PROCESS_TIMEOUT,
         default => ExitCode::PROCESS_FAILED,
     });
-} catch (Throwable $exception) {
+} catch (\Throwable $exception) {
     $message = $exception->getMessage();
     emit([
         'schema_version' => '1.0',
