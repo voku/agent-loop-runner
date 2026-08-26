@@ -6,6 +6,8 @@ namespace voku\AgentLoopRunner\Execution;
 
 use DateTimeImmutable;
 use RuntimeException;
+use voku\AgentLoop\Execution\ExecutionEnvironmentObservation;
+use voku\AgentLoop\Execution\ExecutionEnvironmentTool;
 use voku\AgentLoop\Execution\ExecutionProjection;
 use voku\AgentLoop\Execution\ExecutionStageKind;
 use voku\AgentLoop\Execution\StageCandidateObservation;
@@ -150,6 +152,35 @@ final readonly class ExecutionCoordinator
                     if (!$host instanceof HostAdapter) {
                         throw new RuntimeException('HOST_UNAVAILABLE: ' . $hostId);
                     }
+
+                    $environment = (new EnvironmentProjector())->project($this->config->environmentAllowlist);
+                    $availability = $host->probe($this->supervisor, $workspace->lease->path, $environment);
+                    if (!$availability->available()) {
+                        throw new RuntimeException('HOST_UNAVAILABLE: ' . $hostId);
+                    }
+                    $bundle = $this->gateway->prepareStageForEnvironment(
+                        $taskId,
+                        $stageId,
+                        new ExecutionEnvironmentObservation(
+                            $bundle->taskId,
+                            $bundle->runId,
+                            $bundle->contractRevision,
+                            $bundle->executionPlanDigest,
+                            $bundle->stageId,
+                            $bundle->attempt,
+                            $bundle->candidateRevision,
+                            $hostId,
+                            [new ExecutionEnvironmentTool($hostId, true, $availability->version)],
+                        ),
+                    );
+                    if ($bundle->environmentObservationDigest === null) {
+                        throw new RuntimeException('TRANSITION_REJECTED: environment-aware stage bundle is missing observation lineage.');
+                    }
+                    if ($bundle->baseCommit !== $baseCommit || $bundle->roleId !== $roleId) {
+                        throw new RuntimeException('STALE_ENVIRONMENT_OBSERVATION: environment-aware stage identity changed after workspace acquisition.');
+                    }
+                    $this->assertRepositoryRoot($bundle);
+
                     $submissionId = $local !== null
                         ? $local->submissionId
                         : $this->submissionId($bundle->taskId, $bundle->runId, $bundle->stageId, $bundle->attempt);
@@ -171,7 +202,7 @@ final readonly class ExecutionCoordinator
                             $roleId,
                             $workspace->lease->path,
                             $bundle->prompt,
-                            (new EnvironmentProjector())->project($this->config->environmentAllowlist),
+                            $environment,
                             $this->config->timeoutSeconds,
                             new JournalProcessObserver($this->journal, $attempt),
                         ),

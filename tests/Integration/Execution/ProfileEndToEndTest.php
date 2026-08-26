@@ -7,6 +7,7 @@ namespace voku\AgentLoopRunner\Tests\Integration\Execution;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use voku\AgentLoop\Execution\ExecutionEnvironmentObservation;
 use voku\AgentLoop\Execution\ExecutionProfileName;
 use voku\AgentLoop\Execution\ExecutionProjection;
 use voku\AgentLoop\Execution\ExecutionStageKind;
@@ -87,6 +88,8 @@ final class ProfileEndToEndTest extends TestCase
         $projection = $coordinator->run('TASK');
         self::assertTrue($projection->complete());
         self::assertSame(count($stages) - 1, $host->executions);
+        self::assertSame(count($stages) - 1, $host->probes);
+        self::assertSame(count($stages) - 1, $gateway->environmentPreparations);
         self::assertSame(1, $gateway->deterministicExecutions);
         self::assertSame($stages, $gateway->visited);
     }
@@ -110,6 +113,7 @@ final class ProfileGateway implements ExecutionGatewayPort
 {
     private int $index = 0;
     public int $deterministicExecutions = 0;
+    public int $environmentPreparations = 0;
 
     /** @var list<string> */
     public array $visited = [];
@@ -156,6 +160,39 @@ final class ProfileGateway implements ExecutionGatewayPort
         );
     }
 
+    public function prepareStageForEnvironment(
+        string $taskId,
+        string $stageId,
+        ExecutionEnvironmentObservation $observation,
+    ): StageExecutionBundle {
+        ++$this->environmentPreparations;
+        $bundle = $this->prepareStage($taskId, $stageId);
+
+        return new StageExecutionBundle(
+            taskId: $bundle->taskId,
+            runId: $bundle->runId,
+            contractRevision: $bundle->contractRevision,
+            executionPlanDigest: $bundle->executionPlanDigest,
+            stageId: $bundle->stageId,
+            attempt: $bundle->attempt,
+            kind: $bundle->kind,
+            roleId: $bundle->roleId,
+            mayMutate: $bundle->mayMutate,
+            repositoryRoot: $bundle->repositoryRoot,
+            baseCommit: $bundle->baseCommit,
+            candidateRevision: $bundle->candidateRevision,
+            contractSource: $bundle->contractSource,
+            recallSource: $bundle->recallSource,
+            allowedScope: $bundle->allowedScope,
+            requiredValidation: $bundle->requiredValidation,
+            priorHandoff: $bundle->priorHandoff,
+            acceptedOutcomes: $bundle->acceptedOutcomes,
+            completionMarker: $bundle->completionMarker,
+            prompt: $bundle->prompt . "\nenvironment=" . $observation->digest(),
+            environmentObservationDigest: $observation->digest(),
+        );
+    }
+
     public function recordStageCandidate(StageCandidateObservation $observation): string
     {
         throw new RuntimeException('Candidate observation is not expected in no-op profile fixtures.');
@@ -187,6 +224,7 @@ final class ProfileGateway implements ExecutionGatewayPort
 final class ProfileHost implements HostAdapter
 {
     public int $executions = 0;
+    public int $probes = 0;
 
     public function id(): string
     {
@@ -195,6 +233,8 @@ final class ProfileHost implements HostAdapter
 
     public function probe(ProcessSupervisor $processSupervisor, string $workingDirectory, array $environment): HostAvailability
     {
+        ++$this->probes;
+
         return new HostAvailability('fake', 'fake', '1', null);
     }
 
