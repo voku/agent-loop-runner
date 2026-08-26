@@ -69,12 +69,14 @@ try {
     $host = adapter($hostId, $config);
     $availability = $host->probe($supervisor, $workingDirectory, $environment);
     if (!$availability->available()) {
+        $failure = $availability->failure ?? '';
         emit([
             'schema_version' => '1.0',
             'host' => $hostId,
             'status' => 'HOST_UNAVAILABLE',
             'version' => $availability->version,
-            'failure' => $availability->failure,
+            'failure_bytes' => strlen($failure),
+            'failure_sha256' => hash('sha256', $failure),
         ]);
         exit(ExitCode::HOST_UNAVAILABLE);
     }
@@ -88,8 +90,7 @@ try {
     ), $supervisor)->process;
 
     $after = $git->requireSuccess($workingDirectory, ['status', '--porcelain=v1', '-z'])->stdout;
-    $combinedOutput = $result->stdout . "\n" . $result->stderr;
-    $markerObserved = str_contains($combinedOutput, PROVIDER_SMOKE_MARKER);
+    $markerObserved = str_contains($result->stdout, PROVIDER_SMOKE_MARKER);
     $status = $result->timedOut
         ? 'PROCESS_TIMEOUT'
         : (!$result->successful() || !$markerObserved || $after !== '' ? 'PROCESS_FAILED' : 'PASS');
@@ -115,11 +116,14 @@ try {
         default => ExitCode::PROCESS_FAILED,
     });
 } catch (Throwable $exception) {
+    $message = $exception->getMessage();
     emit([
         'schema_version' => '1.0',
         'host' => $hostId,
         'status' => 'INTERNAL',
-        'error' => $exception->getMessage(),
+        'error_class' => $exception::class,
+        'error_bytes' => strlen($message),
+        'error_sha256' => hash('sha256', $message),
     ]);
     exit(ExitCode::INTERNAL);
 }
