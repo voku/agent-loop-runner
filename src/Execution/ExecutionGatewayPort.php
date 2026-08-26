@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace voku\AgentLoopRunner\Execution;
 
+use voku\AgentLoop\Execution\ExecutionEnvironmentObservation;
 use voku\AgentLoop\Execution\ExecutionProjection;
 use voku\AgentLoop\Execution\StageArtifactObservation;
 use voku\AgentLoop\Execution\StageCandidateObservation;
@@ -15,6 +16,12 @@ interface ExecutionGatewayPort
     public function projection(string $taskId): ExecutionProjection;
 
     public function prepareStage(string $taskId, string $stageId): StageExecutionBundle;
+
+    public function prepareStageForEnvironment(
+        string $taskId,
+        string $stageId,
+        ExecutionEnvironmentObservation $observation,
+    ): StageExecutionBundle;
 
     /** @return non-empty-string */
     public function recordStageCandidate(StageCandidateObservation $observation): string;

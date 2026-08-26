@@ -124,6 +124,7 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
         $projection = $coordinator->run('TASK-1');
         self::assertTrue($projection->complete());
         self::assertSame($agentStages, $host->executions);
+        self::assertSame($agentStages, $host->environmentBoundExecutions);
         self::assertSame($profile, $projection->profile->value);
         self::assertMatchesRegularExpression('/^git-tree-v1:' . preg_quote($this->base, '/') . ':[0-9a-f]{40,64}$/', $projection->candidateRevision);
         self::assertSame($this->originalSource, file_get_contents($this->root . '/src/Foo.php'), 'Runner work must not mutate the user checkout.');
@@ -153,6 +154,7 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
 final class OutcomeHost implements HostAdapter
 {
     public int $executions = 0;
+    public int $environmentBoundExecutions = 0;
 
     public function id(): string
     {
@@ -167,6 +169,10 @@ final class OutcomeHost implements HostAdapter
     public function execute(HostExecutionRequest $request, ProcessSupervisor $processSupervisor): HostExecutionResult
     {
         ++$this->executions;
+        if (str_contains($request->prompt, '# Current bounded execution environment')
+            && str_contains($request->prompt, 'Observation digest: sha256:')) {
+            ++$this->environmentBoundExecutions;
+        }
         $artifactReferences = [];
         if ($request->roleId === 'builder') {
             file_put_contents(

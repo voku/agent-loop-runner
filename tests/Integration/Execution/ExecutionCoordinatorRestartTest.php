@@ -7,6 +7,7 @@ namespace voku\AgentLoopRunner\Tests\Integration\Execution;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use voku\AgentLoop\Execution\ExecutionEnvironmentObservation;
 use voku\AgentLoop\Execution\ExecutionProfileName;
 use voku\AgentLoop\Execution\ExecutionProjection;
 use voku\AgentLoop\Execution\ExecutionStageKind;
@@ -96,7 +97,7 @@ final class ExecutionCoordinatorRestartTest extends TestCase
         self::assertSame(1, $gateway->submissions);
     }
 
-    public function testCrashBeforeProcessReusesStableSubmissionAndRunsOnceOnResume(): void
+    public function testCrashBeforeProcessReusesStableSubmissionAndReobservesCurrentEnvironment(): void
     {
         $gateway = new FakeGateway($this->root, $this->base);
         $host = new MutatingCountingHost();
@@ -106,10 +107,56 @@ final class ExecutionCoordinatorRestartTest extends TestCase
         } catch (InjectedCrash) {
         }
         $submission = $this->journal->load('TASK')?->submissionId;
+        self::assertSame(1, $host->probes);
+        $host->version = '2';
 
         $this->coordinator($gateway, $host, new NullCoordinatorHook())->resume('TASK');
         self::assertSame(1, $host->executions);
+        self::assertSame(2, $host->probes);
+        self::assertSame(2, $gateway->environmentPreparations);
+        self::assertSame('2', $gateway->lastEnvironmentObservation?->tools[0]->version);
         self::assertSame($submission, $gateway->lastSubmissionId);
+    }
+
+    public function testEnvironmentObservationDoesNotCopyAllowlistedSecretValuesIntoPromptFacts(): void
+    {
+        $previous = getenv('OPENAI_API_KEY');
+        putenv('OPENAI_API_KEY=runner-secret-must-not-enter-observation');
+        try {
+            $gateway = new FakeGateway($this->root, $this->base);
+            $host = new MutatingCountingHost();
+            $this->coordinator($gateway, $host, new NullCoordinatorHook())->run('TASK');
+
+            self::assertSame(1, $host->probes);
+            self::assertSame(1, $gateway->environmentPreparations);
+            self::assertNotNull($gateway->lastEnvironmentObservation);
+            self::assertSame('codex', $gateway->lastEnvironmentObservation->hostId);
+            self::assertSame('codex', $gateway->lastEnvironmentObservation->tools[0]->id);
+            self::assertStringNotContainsString(
+                'runner-secret-must-not-enter-observation',
+                json_encode($gateway->lastEnvironmentObservation->toArray(), JSON_THROW_ON_ERROR),
+            );
+            self::assertStringContainsString('environment-bound:', $host->lastPrompt ?? '');
+        } finally {
+            $previous === false ? putenv('OPENAI_API_KEY') : putenv('OPENAI_API_KEY=' . $previous);
+        }
+    }
+
+    public function testUnavailableSelectedHostFailsBeforeEnvironmentPromptOrExecution(): void
+    {
+        $gateway = new FakeGateway($this->root, $this->base);
+        $host = new MutatingCountingHost(available: false);
+
+        try {
+            $this->coordinator($gateway, $host, new NullCoordinatorHook())->run('TASK');
+            self::fail('Expected unavailable host rejection.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('HOST_UNAVAILABLE: codex', $exception->getMessage());
+        }
+
+        self::assertSame(1, $host->probes);
+        self::assertSame(0, $host->executions);
+        self::assertSame(0, $gateway->environmentPreparations);
     }
 
     public function testCrashAfterProcessStartFailsClosedWithoutSecondHostExecution(): void
@@ -185,7 +232,9 @@ final class FakeGateway implements ExecutionGatewayPort
     public int $submissions = 0;
     public int $candidateRegistrations = 0;
     public int $artifactRegistrations = 0;
+    public int $environmentPreparations = 0;
     public ?string $lastSubmissionId = null;
+    public ?ExecutionEnvironmentObservation $lastEnvironmentObservation = null;
 
     public function __construct(private readonly string $root, private readonly string $base)
     {
@@ -233,6 +282,40 @@ final class FakeGateway implements ExecutionGatewayPort
         );
     }
 
+    public function prepareStageForEnvironment(
+        string $taskId,
+        string $stageId,
+        ExecutionEnvironmentObservation $observation,
+    ): StageExecutionBundle {
+        ++$this->environmentPreparations;
+        $this->lastEnvironmentObservation = $observation;
+        $bundle = $this->prepareStage($taskId, $stageId);
+
+        return new StageExecutionBundle(
+            taskId: $bundle->taskId,
+            runId: $bundle->runId,
+            contractRevision: $bundle->contractRevision,
+            executionPlanDigest: $bundle->executionPlanDigest,
+            stageId: $bundle->stageId,
+            attempt: $bundle->attempt,
+            kind: $bundle->kind,
+            roleId: $bundle->roleId,
+            mayMutate: $bundle->mayMutate,
+            repositoryRoot: $bundle->repositoryRoot,
+            baseCommit: $bundle->baseCommit,
+            candidateRevision: $bundle->candidateRevision,
+            contractSource: $bundle->contractSource,
+            recallSource: $bundle->recallSource,
+            allowedScope: $bundle->allowedScope,
+            requiredValidation: $bundle->requiredValidation,
+            priorHandoff: $bundle->priorHandoff,
+            acceptedOutcomes: $bundle->acceptedOutcomes,
+            completionMarker: $bundle->completionMarker,
+            prompt: 'environment-bound:' . $observation->digest() . "\n",
+            environmentObservationDigest: $observation->digest(),
+        );
+    }
+
     public function recordStageCandidate(StageCandidateObservation $observation): string
     {
         ++$this->candidateRegistrations;
@@ -265,6 +348,13 @@ final class FakeGateway implements ExecutionGatewayPort
 final class MutatingCountingHost implements HostAdapter
 {
     public int $executions = 0;
+    public int $probes = 0;
+    public string $version = '1';
+    public ?string $lastPrompt = null;
+
+    public function __construct(private readonly bool $available = true)
+    {
+    }
 
     public function id(): string
     {
@@ -273,12 +363,17 @@ final class MutatingCountingHost implements HostAdapter
 
     public function probe(ProcessSupervisor $processSupervisor, string $workingDirectory, array $environment): HostAvailability
     {
-        return new HostAvailability('codex', 'fake', '1', null);
+        ++$this->probes;
+
+        return $this->available
+            ? new HostAvailability('codex', 'fake', $this->version, null)
+            : new HostAvailability('codex', null, null, 'binary not found');
     }
 
     public function execute(HostExecutionRequest $request, ProcessSupervisor $processSupervisor): HostExecutionResult
     {
         ++$this->executions;
+        $this->lastPrompt = $request->prompt;
         file_put_contents($request->workingDirectory . '/candidate.txt', 'candidate');
         file_put_contents($request->workingDirectory . '/artifact.txt', 'artifact');
 
