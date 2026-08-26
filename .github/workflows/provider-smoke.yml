@@ -1,0 +1,77 @@
+name: Real provider smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: Provider adapter to exercise
+        required: true
+        type: choice
+        options:
+          - codex
+          - claude
+          - opencode
+      require_available:
+        description: Fail when the selected provider binary/auth is unavailable
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          extensions: posix
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Create isolated smoke repository
+        run: |
+          mkdir -p "$RUNNER_TEMP/provider-smoke"
+          git -C "$RUNNER_TEMP/provider-smoke" init -q
+          git -C "$RUNNER_TEMP/provider-smoke" config user.name provider-smoke
+          git -C "$RUNNER_TEMP/provider-smoke" config user.email provider-smoke@example.invalid
+          printf 'provider smoke\n' > "$RUNNER_TEMP/provider-smoke/README.md"
+          git -C "$RUNNER_TEMP/provider-smoke" add README.md
+          git -C "$RUNNER_TEMP/provider-smoke" commit -qm 'fixture'
+
+      - name: Execute selected provider through the real adapter
+        id: smoke
+        shell: bash
+        run: |
+          set +e
+          php tools/provider-smoke.php "${{ inputs.host }}" "$RUNNER_TEMP/provider-smoke" > provider-smoke.json
+          status=$?
+          set -e
+          cat provider-smoke.json
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+
+          if [ "$status" -eq 10 ] && [ "${{ inputs.require_available }}" != "true" ]; then
+            exit 0
+          fi
+
+          exit "$status"
+
+      - name: Verify provider did not mutate the fixture
+        if: always()
+        run: test -z "$(git -C "$RUNNER_TEMP/provider-smoke" status --porcelain=v1)"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: provider-smoke-${{ inputs.host }}-${{ github.run_id }}
+          path: provider-smoke.json
+          if-no-files-found: error
