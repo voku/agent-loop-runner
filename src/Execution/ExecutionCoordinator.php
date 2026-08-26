@@ -158,6 +158,10 @@ final readonly class ExecutionCoordinator
                     if (!$availability->available()) {
                         throw new RuntimeException('HOST_UNAVAILABLE: ' . $hostId);
                     }
+                    $candidateAfterProbe = $this->workspaces->candidateAfter($workspace);
+                    if (!hash_equals($bundle->candidateRevision, $candidateAfterProbe)) {
+                        throw new RuntimeException('STALE_WORKSPACE: host probe changed the isolated workspace before prompt finalization.');
+                    }
                     $bundle = $this->gateway->prepareStageForEnvironment(
                         $taskId,
                         $stageId,
