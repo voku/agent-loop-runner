@@ -67,7 +67,10 @@ SH;
 
         self::assertSame('', $stderr);
         self::assertSame(0, $exit);
-        $result = json_decode((string) $stdout, true, 512, JSON_THROW_ON_ERROR);
+        $decoded = json_decode((string) $stdout, true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
+        /** @var array<string, mixed> $result */
+        $result = $decoded;
         self::assertSame('PASS', $result['status'] ?? null);
         self::assertSame('codex', $result['host'] ?? null);
         self::assertSame('codex-smoke 1.0', $result['version'] ?? null);
