@@ -15,9 +15,19 @@ environment concern, so a mutating governed stage only works when the operator h
 granted the provider process permission to write, by either:
 
 * the provider's own configuration (for Claude Code, a project `.claude/settings.json`
-  declaring `permissions.defaultMode`), or
+  with `permissions.defaultMode` set to a write-capable mode such as `acceptEdits`), or
 * pointing `hosts.<id>.binary` in `.agent-loop-runner/config.json` at an operator-owned
   launcher script that adds the trust flags before exec'ing the real CLI.
+
+For example, the Claude Code project setting is nested under `permissions`:
+
+```json
+{
+  "permissions": {
+    "defaultMode": "acceptEdits"
+  }
+}
+```
 
 `binary` accepts an absolute path, so the launcher route needs no Runner change. Runner must
 not grow its own permission knob: that would move host trust policy inside the execution plane.
@@ -25,5 +35,6 @@ not grow its own permission knob: that would move host trust policy inside the e
 Observed with real Claude Code 2.1.x: with default permissions a write is denied, yet the
 process still **exits 0** and prints an explanatory sentence instead of performing the work.
 A mutating stage run that way produces an unchanged candidate. This is a concrete instance of
-the standing invariant — `process exit 0 != stage passed` — and is why a stage is accepted from
-the parsed completion envelope plus owner-side validation, never from exit status.
+the standing invariant — `process exit 0 != stage passed`. A zero process exit is necessary on
+the current execution path but insufficient for acceptance: non-zero exits are rejected first,
+and a successful process still needs a parsed completion envelope plus owner-side validation.
