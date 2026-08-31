@@ -1,0 +1,150 @@
+name: Fresh agent dogfood for agent-loop 342
+
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: Provider adapter for the fresh actor
+        required: true
+        default: codex
+        type: choice
+        options:
+          - codex
+          - claude
+          - opencode
+      runner:
+        description: Runner with the selected provider binary and authentication available
+        required: true
+        default: self-hosted
+        type: choice
+        options:
+          - self-hosted
+          - ubuntu-latest
+
+permissions:
+  contents: read
+
+jobs:
+  actor:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 40
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    steps:
+      - name: Check out Runner
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Check out untouched agent-loop main
+        uses: actions/checkout@v6
+        with:
+          repository: voku/agent-loop
+          ref: main
+          path: target
+          persist-credentials: false
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          extensions: posix
+          tools: composer:v2
+
+      - name: Install Runner dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Install target dependencies
+        working-directory: target
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Freeze pristine issue input
+        id: input
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/agent-loop-342-evidence"
+          mkdir -p "$evidence"
+
+          curl --fail --silent --show-error --location \
+            -H 'Accept: application/vnd.github+json' \
+            'https://api.github.com/repos/voku/agent-loop/issues/342' \
+            > "$evidence/issue-342.json"
+
+          test "$(jq -r '.state' "$evidence/issue-342.json")" = 'open'
+          test "$(jq -r '.comments' "$evidence/issue-342.json")" = '0'
+          test "$(jq -r '.updated_at' "$evidence/issue-342.json")" = '2026-08-29T05:30:33Z'
+          test "$(jq -r '.title' "$evidence/issue-342.json")" = 'dogfood: verify exact Map navigation replaces PHP target rediscovery'
+
+          base_sha="$(git -C target rev-parse HEAD)"
+          printf '%s\n' "$base_sha" > "$evidence/base-sha.txt"
+          test -z "$(git -C target status --porcelain=v1)"
+
+          {
+            printf '%s\n\n' 'Work on voku/agent-loop#342 following the current repository guidance.'
+            printf '%s\n' 'Work only in this checkout. Do not push, merge, comment on GitHub, or otherwise mutate remote state.'
+            printf '%s\n\n' 'The exact current issue body is the task specification:'
+            jq -r '.body' "$evidence/issue-342.json"
+          } > "$evidence/actor-prompt.txt"
+
+          sha256sum "$evidence/actor-prompt.txt" > "$evidence/actor-prompt.sha256"
+          printf 'base_sha=%s\n' "$base_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Execute fresh actor through real provider adapter
+        id: actor
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          evidence="$RUNNER_TEMP/agent-loop-342-evidence"
+          php tools/premise-dogfood.php \
+            '${{ inputs.host }}' \
+            "$GITHUB_WORKSPACE/target" \
+            "$evidence/actor-prompt.txt" \
+            "$evidence"
+          status=$?
+          set -e
+          printf '%s\n' "$status" > "$evidence/actor-exit-code.txt"
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Capture immutable observation evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/agent-loop-342-evidence"
+          base_sha="$(cat "$evidence/base-sha.txt")"
+
+          git -C target status --porcelain=v1 > "$evidence/git-status.txt"
+          git -C target rev-parse HEAD > "$evidence/after-sha.txt"
+          git -C target log --oneline --decorate "$base_sha"..HEAD > "$evidence/local-commits.txt"
+
+          git -C target add -N . || true
+          git -C target diff --binary --no-ext-diff "$base_sha" > "$evidence/working-tree.patch"
+
+          {
+            printf 'host=%s\n' '${{ inputs.host }}'
+            printf 'runner=%s\n' '${{ inputs.runner }}'
+            printf 'base_sha=%s\n' "$base_sha"
+            printf 'after_sha=%s\n' "$(cat "$evidence/after-sha.txt")"
+            printf 'actor_exit_code=%s\n' "$(cat "$evidence/actor-exit-code.txt" 2>/dev/null || printf 'missing')"
+          } > "$evidence/run.txt"
+
+      - name: Upload dogfood evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-loop-342-${{ inputs.host }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-loop-342-evidence
+          if-no-files-found: error
+
+      - name: Require a completed actor process
+        if: always()
+        shell: bash
+        run: |
+          evidence="$RUNNER_TEMP/agent-loop-342-evidence"
+          test -f "$evidence/actor-exit-code.txt"
+          test "$(cat "$evidence/actor-exit-code.txt")" -eq 0
