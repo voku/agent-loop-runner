@@ -35,6 +35,17 @@ final readonly class WorkspaceArtifactObserver
             $seen[$reference] = true;
             $relativePath = $this->relativePath($reference);
             $requestedPath = $root . '/' . $relativePath;
+            if (!file_exists($requestedPath)) {
+                // Real providers cite evidence as "path:line", the same convention
+                // grep, compilers and editors use. The literal path always wins;
+                // the citation suffix is only dropped as a fallback, and the
+                // remaining path still passes every guard below.
+                $cited = $this->withoutLineCitation($relativePath);
+                if ($cited !== null && file_exists($root . '/' . $cited)) {
+                    $relativePath = $cited;
+                    $requestedPath = $root . '/' . $cited;
+                }
+            }
             if (is_link($requestedPath)) {
                 throw new RuntimeException('INVALID_STAGE_RESULT: artifact references must not be symlinks: ' . $reference);
             }
@@ -64,6 +75,23 @@ final readonly class WorkspaceArtifactObserver
         }
 
         return $observations;
+    }
+
+    /**
+     * Drops a trailing "path:line", "path:line:column" or "path:line-line"
+     * citation. Returns null when the reference carries no such suffix, so the
+     * caller keeps rejecting a genuinely missing artifact.
+     *
+     * @return non-empty-string|null
+     */
+    private function withoutLineCitation(string $relativePath): ?string
+    {
+        if (preg_match('/^(?<path>.+?):\\d+(?:[:-]\\d+)?$/', $relativePath, $matches) !== 1) {
+            return null;
+        }
+        // The pattern requires at least one character before the citation, so
+        // the captured path is always non-empty here.
+        return $matches['path'];
     }
 
     /** @return non-empty-string */
