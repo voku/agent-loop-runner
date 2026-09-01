@@ -1,53 +1,36 @@
 # agent-loop-runner
 
-Optional execution plane for [`voku/agent-loop`](https://github.com/voku/agent-loop).
+External execution runner for `voku/agent-loop`.
 
-`agent-loop-runner` executes already-authorized governed stages through host adapters, isolated Git workspaces, and restart-safe process supervision. It does **not** own approval, Contract mutation, lifecycle truth, validation truth, review verdicts, Learning, or close.
+## Architectural role
+
+`agent-loop-runner` is an **optional process supervisor** for external coding agents. It consumes already-authorized stages through `voku/agent-loop`'s public execution API, invokes local agent binaries in isolated Git worktrees, and returns candidate changes and artifact observations for owner validation.
 
 ```text
-agent-loop-runner
+agent-loop-runner (optional execution process plane)
       |
+      | public typed Execution API only
       v
-  agent-loop
+agent-loop (authoritative governance root)
 ```
 
-The inverse dependency is forbidden. `agent-loop` remains fully usable without this package installed and continues not to invoke an LLM itself.
+## Boundaries
 
-The implementation roadmap and definition of done are tracked in [issue #1](https://github.com/voku/agent-loop-runner/issues/1). The prerequisite typed execution protocol is tracked in [`voku/agent-loop#269`](https://github.com/voku/agent-loop/issues/269).
+1. `voku/agent-loop` never requires `agent-loop-runner`.
+2. `agent-loop-runner` depends on `agent-loop`; `agent-loop` never depends on `agent-loop-runner`.
+3. Runner never owns approval, Contract mutation, lifecycle truth, validation truth, review verdicts, Learning, or close.
+4. Provider processes are bounded: they receive only the stage prompt and allowed environment variables; credentials and arbitrary host state remain outside the prompt boundary.
 
-## Commands
+## Layout
 
-```text
-agent-loop-runner doctor
-agent-loop-runner status <task-id>
-agent-loop-runner run <task-id>
-agent-loop-runner resume <task-id>
-agent-loop-runner cancel <task-id>
-agent-loop-runner cleanup <task-id>
-```
-
-`run` and `resume` use the same reconciliation path. A nonblocking per-task execution lock prevents concurrent Runner processes from executing the same governed stage, and every iteration reloads `agent-loop`'s authoritative execution projection before deciding whether a stage may run.
-
-## Typed application API
-
-Non-CLI adapters should use `voku\AgentLoopRunner\Application\RunnerControlService` rather than parse CLI JSON or reconstruct the Runner object graph. It exposes `status()`, `run()`, `resume()`, `cancel()`, and `cleanup()`.
-
-`status()` returns a `RunnerStatus` with two deliberately separate values:
-
-- `authority`: the current `agent-loop` `ExecutionProjection`;
-- `observation`: the optional Runner-private `RuntimeAttempt`.
-
-A process exit, PID, host ID, workspace identity, or journal status therefore stays observation. Only `agent-loop` remains execution/workflow authority.
-
-## State
-
-Runner-private state lives under `.agent-loop-runner/` in the target project:
+Runner-private state is isolated in `.agent-loop-runner/`:
 
 ```text
-config.json
-runtime/
-worktrees/
-logs/
+.agent-loop-runner/
+  config.json
+  runtime/
+  worktrees/
+  logs/
 ```
 
 Those paths are runner observations/configuration only. They are never workflow authority and are deliberately unknown to `agent-loop`.
@@ -58,7 +41,8 @@ The built-in adapters use the documented non-interactive entry points without pe
 
 - Codex: `codex exec --ephemeral -` with the bounded stage prompt on stdin;
 - Claude Code: `claude -p <prompt>`;
-- OpenCode: `opencode run <prompt>`.
+- OpenCode: `opencode run <prompt>`;
+- Antigravity: `agy --dangerously-skip-permissions -p <prompt>`.
 
 Binary paths can be configured explicitly. Model choice, reasoning/effort settings, provider credentials, and host trust policy stay outside this package's workflow semantics.
 
