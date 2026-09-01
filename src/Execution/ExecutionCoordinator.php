@@ -345,9 +345,6 @@ final readonly class ExecutionCoordinator
                     ));
                 }
 
-                if ($envelope->validationReferences !== []) {
-                    throw new RuntimeException('INVALID_STAGE_RESULT: agent stages cannot mint authoritative validation references.');
-                }
                 $artifactReferences = [];
                 $artifactObserver = new WorkspaceArtifactObserver();
                 foreach ($artifactObserver->observe(

@@ -10,6 +10,7 @@ use Throwable;
 use voku\AgentLoop\Execution\ExecutionGateway;
 use voku\AgentLoopRunner\Config\RunnerConfig;
 use voku\AgentLoopRunner\Git\GitCommand;
+use voku\AgentLoopRunner\Host\AgyHostAdapter;
 use voku\AgentLoopRunner\Host\ClaudeHostAdapter;
 use voku\AgentLoopRunner\Host\CodexHostAdapter;
 use voku\AgentLoopRunner\Host\HostAdapter;
@@ -109,6 +110,7 @@ final readonly class RunnerApplication
             'codex' => new CodexHostAdapter($config->binary('codex')),
             'claude' => new ClaudeHostAdapter($config->binary('claude')),
             'opencode' => new OpenCodeHostAdapter($config->binary('opencode')),
+            'agy' => new AgyHostAdapter($config->binary('agy')),
         ];
     }
 

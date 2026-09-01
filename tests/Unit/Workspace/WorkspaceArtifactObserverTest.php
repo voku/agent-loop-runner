@@ -8,12 +8,10 @@ use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use voku\AgentLoop\Execution\ExecutionStageKind;
 use voku\AgentLoop\Execution\StageExecutionBundle;
-use voku\AgentLoop\Execution\StageOutcome;
 use voku\AgentLoopRunner\Workspace\WorkspaceArtifactObserver;
 
 /**
- * Real providers cite evidence as "path:line". Rejecting the whole stage for
- * that discarded a completed investigation and left the Run undispatchable.
+ * Real providers cite evidence as "path:line" or with "workspace-file:" prefix.
  *
  * @internal
  */
@@ -36,7 +34,6 @@ final class WorkspaceArtifactObserverTest extends TestCase
     }
 
     /**
-     * @param non-empty-string ...$references
      * @return list<string>
      */
     private function observeReferences(string ...$references): array
@@ -59,11 +56,27 @@ final class WorkspaceArtifactObserverTest extends TestCase
         );
     }
 
+    public function testAcceptsWorkspaceFilePrefix(): void
+    {
+        self::assertSame(
+            ['workspace-file:src/Example.php'],
+            $this->observeReferences('workspace-file:src/Example.php'),
+        );
+    }
+
     public function testAcceptsALineCitationAndRecordsTheFileItself(): void
     {
         self::assertSame(
             ['workspace-file:src/Example.php'],
             $this->observeReferences('src/Example.php:70'),
+        );
+    }
+
+    public function testAcceptsWorkspaceFilePrefixWithLineCitation(): void
+    {
+        self::assertSame(
+            ['workspace-file:src/Example.php'],
+            $this->observeReferences('workspace-file:src/Example.php:70'),
         );
     }
 
@@ -124,7 +137,7 @@ final class WorkspaceArtifactObserverTest extends TestCase
             [],
             [],
             null,
-            [StageOutcome::COMPLETED],
+            ['completed'],
             'MARKER',
             'prompt',
         );

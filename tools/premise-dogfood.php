@@ -5,6 +5,7 @@ declare(strict_types=1);
 use voku\AgentLoopRunner\Application\ExitCode;
 use voku\AgentLoopRunner\Config\RunnerConfig;
 use voku\AgentLoopRunner\Git\GitCommand;
+use voku\AgentLoopRunner\Host\AgyHostAdapter;
 use voku\AgentLoopRunner\Host\ClaudeHostAdapter;
 use voku\AgentLoopRunner\Host\CodexHostAdapter;
 use voku\AgentLoopRunner\Host\HostAdapter;
@@ -13,7 +14,11 @@ use voku\AgentLoopRunner\Host\OpenCodeHostAdapter;
 use voku\AgentLoopRunner\Process\EnvironmentProjector;
 use voku\AgentLoopRunner\Process\ForegroundProcessSupervisor;
 
-require dirname(__DIR__) . '/vendor/autoload.php';
+if (file_exists(dirname(__DIR__) . '/vendor/autoload.php')) {
+    require dirname(__DIR__) . '/vendor/autoload.php';
+} elseif (file_exists(dirname(__DIR__, 3) . '/autoload.php')) {
+    require dirname(__DIR__, 3) . '/autoload.php';
+}
 
 /** @param array<string, mixed> $payload */
 function emitPremiseDogfoodResult(array $payload, string $evidenceDirectory): void
@@ -37,6 +42,7 @@ function premiseDogfoodAdapter(string $hostId, RunnerConfig $config): HostAdapte
         'codex' => new CodexHostAdapter($config->binary('codex')),
         'claude' => new ClaudeHostAdapter($config->binary('claude')),
         'opencode' => new OpenCodeHostAdapter($config->binary('opencode')),
+        'agy' => new AgyHostAdapter($config->binary('agy')),
         default => throw new RuntimeException('Unsupported premise dogfood host: ' . $hostId),
     };
 }
@@ -53,12 +59,12 @@ $workingDirectory = $argv[2] ?? '';
 $promptPath = $argv[3] ?? '';
 $evidenceDirectory = $argv[4] ?? '';
 
-if (!in_array($hostId, ['codex', 'claude', 'opencode'], true)
+if (!in_array($hostId, ['codex', 'claude', 'opencode', 'agy'], true)
     || $workingDirectory === ''
     || $promptPath === ''
     || $evidenceDirectory === ''
 ) {
-    fwrite(STDERR, "Usage: php tools/premise-dogfood.php <codex|claude|opencode> <clean-git-working-directory> <prompt-file> <evidence-directory>\n");
+    fwrite(STDERR, "Usage: php tools/premise-dogfood.php <codex|claude|opencode|agy> <clean-git-working-directory> <prompt-file> <evidence-directory>\n");
     exit(ExitCode::USAGE);
 }
 
@@ -85,7 +91,7 @@ if (!is_string($prompt) || trim($prompt) === '') {
     exit(ExitCode::USAGE);
 }
 
-$projectRoot = dirname(__DIR__);
+$projectRoot = is_file(dirname(__DIR__) . '/composer.json') ? dirname(__DIR__) : dirname(__DIR__, 3);
 $supervisor = new ForegroundProcessSupervisor();
 $config = RunnerConfig::load($projectRoot);
 $environment = (new EnvironmentProjector())->project($config->environmentAllowlist);

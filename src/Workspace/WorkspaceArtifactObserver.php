@@ -97,6 +97,10 @@ final readonly class WorkspaceArtifactObserver
     /** @return non-empty-string */
     private function relativePath(string $reference): string
     {
+        if (str_starts_with($reference, 'workspace-file:')) {
+            $reference = substr($reference, strlen('workspace-file:'));
+        }
+
         if ($reference === ''
             || str_starts_with($reference, '/')
             || str_contains($reference, "\0")

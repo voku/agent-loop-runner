@@ -6,6 +6,7 @@ namespace voku\AgentLoopRunner\Tests\Unit;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use voku\AgentLoopRunner\Host\AgyHostAdapter;
 use voku\AgentLoopRunner\Host\ClaudeHostAdapter;
 use voku\AgentLoopRunner\Host\CodexHostAdapter;
 use voku\AgentLoopRunner\Host\HostAdapter;
@@ -55,6 +56,11 @@ final class HostAdapterContractTest extends TestCase
             [$placeholder, 'run', 'hostile $(touch nope) `still-data`'],
             '',
         ];
+        yield 'agy uses print mode with dangerously-skip-permissions and prompt as argv data' => [
+            new AgyHostAdapter($placeholder),
+            [$placeholder, '--dangerously-skip-permissions', '-p', 'hostile $(touch nope) `still-data`'],
+            '',
+        ];
     }
 
     /** @param list<string> $expectedArgv */
@@ -65,6 +71,7 @@ final class HostAdapterContractTest extends TestCase
             'codex' => new CodexHostAdapter($this->binary),
             'claude' => new ClaudeHostAdapter($this->binary),
             'opencode' => new OpenCodeHostAdapter($this->binary),
+            'agy' => new AgyHostAdapter($this->binary),
             default => self::fail('Unexpected host fixture.'),
         };
         $supervisor = new RecordingProcessSupervisor();

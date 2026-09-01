@@ -11,7 +11,7 @@ use voku\AgentLoopRunner\RunnerLayout;
 final readonly class RunnerConfig
 {
     /** @var list<non-empty-string> */
-    private const array SUPPORTED_HOST_IDS = ['codex', 'claude', 'opencode'];
+    private const array SUPPORTED_HOST_IDS = ['codex', 'claude', 'opencode', 'agy'];
 
     /**
      * @param array<string, array{binary: non-empty-string}> $hosts
@@ -85,6 +85,7 @@ final readonly class RunnerConfig
                 'codex' => ['binary' => 'codex'],
                 'claude' => ['binary' => 'claude'],
                 'opencode' => ['binary' => 'opencode'],
+                'agy' => ['binary' => 'agy'],
             ],
             [
                 'investigator' => 'codex',
@@ -103,6 +104,8 @@ final readonly class RunnerConfig
                 'CODEX_HOME', 'OPENAI_API_KEY',
                 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN',
                 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_DIR',
+                'ANTIGRAVITY_LS_ADDRESS', 'ANTIGRAVITY_AGENTAPI_EXE', 'ANTIGRAVITY_CSRF_TOKEN',
+                'ANTIGRAVITY_PROJECT_ID', 'GEMINI_API_KEY', 'GOOGLE_API_KEY',
             ],
         );
     }
