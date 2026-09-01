@@ -91,7 +91,13 @@ final readonly class ExecutionCoordinator
                     && $local->contractRevision === $projection->contractRevision
                     && $local->executionPlanDigest === $projection->executionPlanDigest;
                 if (!$samePlan) {
-                    throw new RuntimeException('STALE_RUN: runtime identity conflicts with authoritative projection.');
+                    // Name the recovery: this state is reached by legitimate owner
+                    // action (a superseded Contract starts a new Run), and a bare
+                    // refusal leaves the task with no visible way forward.
+                    throw new RuntimeException(
+                        'STALE_RUN: runtime identity conflicts with authoritative projection.'
+                        . ' Run "agent-loop-runner cleanup ' . $taskId . '" to retire the reconciled workspace and record.'
+                    );
                 }
                 if ($local->stageId !== $stageId || $local->attempt !== $projection->currentAttempt) {
                     $this->journal->save($this->copy($local, AttemptStatus::ReconciledAccepted));

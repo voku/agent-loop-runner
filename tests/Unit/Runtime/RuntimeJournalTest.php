@@ -58,6 +58,31 @@ final class RuntimeJournalTest extends TestCase
         self::assertSame($attempt->toArray(), $journal->load('TASK-1')?->toArray());
     }
 
+    /**
+     * A record that outlives its cleaned-up workspace pins the task to a retired
+     * run/Contract revision, so every later run/resume fails STALE_RUN even after
+     * the owner approved a new Contract revision.
+     */
+    public function testForgetRetiresTheRecordSoALaterAuthorityCanReconcile(): void
+    {
+        $journal = new RuntimeJournal(new RunnerLayout($this->root));
+        $journal->save($this->startedAttempt(4242, 'sha256:fingerprint'));
+        self::assertNotNull($journal->load('TASK-1'));
+
+        $journal->forget('TASK-1');
+
+        self::assertNull($journal->load('TASK-1'));
+    }
+
+    public function testForgetIsIdempotentForAnAbsentRecord(): void
+    {
+        $journal = new RuntimeJournal(new RunnerLayout($this->root));
+
+        $journal->forget('TASK-DOES-NOT-EXIST');
+
+        $this->expectNotToPerformAssertions();
+    }
+
     public function testCancelledAttemptCannotBeOverwrittenBySameAuthoritativeAttempt(): void
     {
         $journal = new RuntimeJournal(new RunnerLayout($this->root));

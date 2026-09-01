@@ -94,7 +94,8 @@ final readonly class RunnerControlService
         $layout = new RunnerLayout($this->projectRoot);
         $lock = RunExecutionLock::acquire($layout, $taskId);
         try {
-            $attempt = (new RuntimeJournal($layout))->load($taskId);
+            $journal = new RuntimeJournal($layout);
+            $attempt = $journal->load($taskId);
             if ($attempt === null) {
                 throw new RuntimeException('STALE_RUN: no Runner observation identifies a workspace.');
             }
@@ -110,6 +111,12 @@ final readonly class RunnerControlService
                 new WorkspaceCandidateHasher($git),
             );
             $manager->cleanup($attempt->taskId, $attempt->runId);
+
+            // The workspace is gone, so the record describing it must go too.
+            // Leaving it behind pins the task to a retired run/Contract revision
+            // and makes every later run/resume fail STALE_RUN, with no recovery
+            // path even after the owner approved a new Contract revision.
+            $journal->forget($attempt->taskId);
         } finally {
             $lock->release();
         }

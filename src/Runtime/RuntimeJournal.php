@@ -42,6 +42,24 @@ final readonly class RuntimeJournal
     }
 
     /**
+     * Retires a runtime record whose workspace has been cleaned up.
+     *
+     * A record that outlives its workspace keeps describing an identity that can
+     * no longer be reconciled, so every later run/resume fails STALE_RUN even
+     * after the owner has legitimately re-authorized the work. Callers must have
+     * verified the record is reconciled or cancelled before retiring it.
+     */
+    public function forget(string $taskId): void
+    {
+        $path = $this->layout->runtime($taskId);
+        $this->withLock($path, static function () use ($path): void {
+            if (is_file($path) && !unlink($path)) {
+                throw new RuntimeException('Unable to retire runtime journal record.');
+            }
+        });
+    }
+
+    /**
      * Atomically verifies the exact active process observation, signals it, and
      * persists cancellation before coordinator state may advance.
      *
