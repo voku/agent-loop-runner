@@ -1,6 +1,9 @@
 # agent-loop-runner
 
-External execution runner for `voku/agent-loop`.
+External execution runner and process supervisor for [`voku/agent-loop`](https://github.com/voku/agent-loop).
+
+[![Build Status](https://github.com/voku/agent-loop-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/voku/agent-loop-runner/actions)
+[![License](https://img.shields.io/github/license/voku/agent-loop-runner.svg)](LICENSE)
 
 ## Architectural role
 
@@ -13,6 +16,58 @@ agent-loop-runner (optional execution process plane)
       v
 agent-loop (authoritative governance root)
 ```
+
+## Requirements
+
+| Requirement | Version / Specification |
+| --- | --- |
+| PHP | `^8.3` |
+| Git | `^2.25` (worktrees supported) |
+| `voku/agent-loop` | `^0.18.0` |
+| Coding Host(s) | At least one installed CLI: Codex, Claude Code, OpenCode, or Antigravity (`agy`) |
+
+## Installation
+
+```bash
+composer require --dev voku/agent-loop-runner
+```
+
+The package exposes the standalone supervisor CLI:
+
+```bash
+vendor/bin/agent-loop-runner
+```
+
+## Quick Start
+
+```bash
+# 1. Diagnose environment, dependencies, and detected host adapters
+vendor/bin/agent-loop-runner doctor
+
+# 2. Inspect runner status and authorized stage for a task
+vendor/bin/agent-loop-runner status TASK-123
+
+# 3. Execute the authorized stage in an isolated Git worktree
+vendor/bin/agent-loop-runner run TASK-123
+
+# 4. Resume an interrupted execution or cancel an active process
+vendor/bin/agent-loop-runner resume TASK-123
+vendor/bin/agent-loop-runner cancel TASK-123
+
+# 5. Clean up the isolated run workspace once reconciled
+vendor/bin/agent-loop-runner cleanup TASK-123
+```
+
+## CLI Reference
+
+| Command | Usage | Description |
+| --- | --- | --- |
+| `doctor` | `agent-loop-runner doctor` | Diagnose environment, Git worktree capability, and reachability of configured coding hosts. |
+| `status` | `agent-loop-runner status TASK` | Inspect execution status, active Run bindings, workspace state, and stage attempts. |
+| `run` | `agent-loop-runner run TASK` | Execute only the currently authorized external stage in an isolated Git worktree. |
+| `resume` | `agent-loop-runner resume TASK` | Reconcile and resume an interrupted authorized external stage. |
+| `cancel` | `agent-loop-runner cancel TASK` | Terminate the active agent supervisor process for the specified task. |
+| `cleanup` | `agent-loop-runner cleanup TASK` | Remove the reconciled clean runner workspace after stage completion. |
 
 ## Boundaries
 
@@ -34,6 +89,40 @@ Runner-private state is isolated in `.agent-loop-runner/`:
 ```
 
 Those paths are runner observations/configuration only. They are never workflow authority and are deliberately unknown to `agent-loop`.
+
+## Configuration
+
+Runner configuration is optional. When `.agent-loop-runner/config.json` is absent, built-in defaults apply.
+
+```json
+{
+  "schema_version": 1,
+  "hosts": {
+    "codex": { "binary": "codex" },
+    "claude": { "binary": "claude" },
+    "opencode": { "binary": "opencode" },
+    "agy": { "binary": "agy" }
+  },
+  "roles": {
+    "investigator": "codex",
+    "builder": "codex",
+    "reviewer": "claude",
+    "correctness-review": "claude",
+    "architecture-review": "claude",
+    "hardening": "codex",
+    "independent-verification": "claude",
+    "blindspot-review": "claude"
+  },
+  "execution": {
+    "timeout_seconds": 1800,
+    "environment_allowlist": [
+      "PATH", "HOME", "USER", "LOGNAME", "TMPDIR",
+      "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN",
+      "ANTIGRAVITY_LS_ADDRESS", "ANTIGRAVITY_CSRF_TOKEN", "GEMINI_API_KEY"
+    ]
+  }
+}
+```
 
 ## Host defaults
 
