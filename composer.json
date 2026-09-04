@@ -4,9 +4,38 @@
   "type": "library",
   "license": "MIT",
   "homepage": "https://github.com/voku/agent-loop-runner",
+  "support": {
+    "issues": "https://github.com/voku/agent-loop-runner/issues",
+    "source": "https://github.com/voku/agent-loop-runner"
+  },
+  "keywords": [
+    "agent",
+    "coding-agent",
+    "agent-loop",
+    "runner",
+    "execution-plane",
+    "supervision",
+    "process-manager",
+    "workspaces",
+    "git-worktrees",
+    "ai",
+    "llm"
+  ],
+  "authors": [
+    {
+      "name": "Lars Moelleken",
+      "homepage": "https://github.com/voku"
+    }
+  ],
+  "funding": [
+    {
+      "type": "github",
+      "url": "https://github.com/voku"
+    }
+  ],
   "require": {
     "php": "^8.3",
-    "voku/agent-loop": "^0.19.0"
+    "voku/agent-loop": "^0.18.0 || ^0.19.0"
   },
   "require-dev": {
     "phpstan/phpstan": "^2.1",

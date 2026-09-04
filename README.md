@@ -3,7 +3,13 @@
 External execution runner and process supervisor for [`voku/agent-loop`](https://github.com/voku/agent-loop).
 
 [![Build Status](https://github.com/voku/agent-loop-runner/actions/workflows/ci.yml/badge.svg)](https://github.com/voku/agent-loop-runner/actions)
-[![License](https://img.shields.io/github/license/voku/agent-loop-runner.svg)](LICENSE)
+[![Latest Stable Version](https://poser.pugx.org/voku/agent-loop-runner/v/stable)](https://packagist.org/packages/voku/agent-loop-runner)
+[![Total Downloads](https://poser.pugx.org/voku/agent-loop-runner/downloads)](https://packagist.org/packages/voku/agent-loop-runner)
+[![Monthly Downloads](https://poser.pugx.org/voku/agent-loop-runner/d/monthly)](https://packagist.org/packages/voku/agent-loop-runner)
+[![License](https://poser.pugx.org/voku/agent-loop-runner/license)](https://packagist.org/packages/voku/agent-loop-runner)
+[![PHP Version Require](https://poser.pugx.org/voku/agent-loop-runner/require/php)](https://packagist.org/packages/voku/agent-loop-runner)
+[![GitHub Stars](https://img.shields.io/github/stars/voku/agent-loop-runner?style=flat-square)](https://github.com/voku/agent-loop-runner/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/voku/agent-loop-runner?style=flat-square)](https://github.com/voku/agent-loop-runner/network/members)
 
 ## Architectural role
 
@@ -23,7 +29,7 @@ agent-loop (authoritative governance root)
 | --- | --- |
 | PHP | `^8.3` |
 | Git | `^2.25` (worktrees supported) |
-| `voku/agent-loop` | `^0.18.0` |
+| `voku/agent-loop` | `^0.19.0` |
 | Coding Host(s) | At least one installed CLI: Codex, Claude Code, OpenCode, or Antigravity (`agy`) |
 
 ## Installation
