@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-04
+
+### Changed
+
+- Require the coordinated pre-1.0 release set through `voku/agent-loop ^0.19.0`.
+
 ### Added
 
 - Add `AgyHostAdapter` supporting Google Antigravity (`agy`) CLI non-interactive execution (`--dangerously-skip-permissions -p`), discovery in `doctor`, and provider smoke testing.
@@ -18,3 +24,4 @@
 - Retire runtime journal records during `cleanup()`, preventing orphaned records from locking reconciliation with `STALE_RUN` after Contract revisions start a new Run.
 - Accept UTF-8 BOM-prefixed `.agent-loop-runner/config.json` files before JSON decoding, so editor-created configuration files load consistently.
 - Fix static analysis types in `WorkspaceArtifactObserverTest` for `StageOutcome` and non-empty-string artifact reference parameters.
+
