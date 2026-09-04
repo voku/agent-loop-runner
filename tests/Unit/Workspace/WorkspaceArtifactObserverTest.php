@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use voku\AgentLoop\Execution\ExecutionStageKind;
 use voku\AgentLoop\Execution\StageExecutionBundle;
+use voku\AgentLoop\Execution\StageOutcome;
 use voku\AgentLoopRunner\Workspace\WorkspaceArtifactObserver;
 
 /**
@@ -34,6 +35,8 @@ final class WorkspaceArtifactObserverTest extends TestCase
     }
 
     /**
+     * @param non-empty-string ...$references
+     *
      * @return list<string>
      */
     private function observeReferences(string ...$references): array
@@ -137,7 +140,7 @@ final class WorkspaceArtifactObserverTest extends TestCase
             [],
             [],
             null,
-            ['completed'],
+            [StageOutcome::COMPLETED],
             'MARKER',
             'prompt',
         );
