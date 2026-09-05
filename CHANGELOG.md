@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-05
+
+### Changed
+
+- Allow released `voku/agent-loop ^0.20.0` alongside the already-supported `^0.18.0` and `^0.19.0` lines. No Runner runtime behavior changes; this restores an installable released consumer graph for downstream packages such as `agent-ui` after Loop 0.20.0.
+
 ## [0.1.0] - 2026-09-04
 
 ### Changed
@@ -24,4 +30,3 @@
 - Retire runtime journal records during `cleanup()`, preventing orphaned records from locking reconciliation with `STALE_RUN` after Contract revisions start a new Run.
 - Accept UTF-8 BOM-prefixed `.agent-loop-runner/config.json` files before JSON decoding, so editor-created configuration files load consistently.
 - Fix static analysis types in `WorkspaceArtifactObserverTest` for `StageOutcome` and non-empty-string artifact reference parameters.
-
