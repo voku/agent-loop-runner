@@ -78,8 +78,8 @@ jobs:
                   $loop = $package;
               }
           }
-          if ($loop === null || !preg_match("/^0\\.18\\.[0-9]+$/", $loop["version"])) {
-              fwrite(STDERR, "Expected released agent-loop 0.18.x in consumer lock.\n");
+          if ($loop === null || !preg_match("/^0\\.20\\.[0-9]+$/", $loop["version"])) {
+              fwrite(STDERR, "Expected released agent-loop 0.20.x in consumer lock.\n");
               exit(1);
           }
           ' "$consumer/composer.lock"
