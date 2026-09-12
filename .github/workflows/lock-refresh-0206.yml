@@ -1,0 +1,47 @@
+name: Temporary Loop 0.20.6 lock refresh
+
+on:
+  push:
+    branches:
+      - chatgpt/l1-host-consumer-proof
+
+permissions:
+  contents: read
+
+jobs:
+  lock-refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          extensions: posix
+          tools: composer:v2
+      - name: Resolve released Loop 0.20.6 and dependencies
+        run: composer update voku/agent-loop --with-all-dependencies --no-interaction --prefer-dist --no-progress
+      - name: Prove exact released Loop lock
+        run: |
+          php -r '
+          $lock = json_decode(file_get_contents("composer.lock"), true, 512, JSON_THROW_ON_ERROR);
+          foreach ($lock["packages"] as $package) {
+              if (($package["name"] ?? null) !== "voku/agent-loop") {
+                  continue;
+              }
+              if (($package["version"] ?? null) !== "0.20.6") {
+                  fwrite(STDERR, "Expected voku/agent-loop 0.20.6, got " . ($package["version"] ?? "missing") . "\n");
+                  exit(1);
+              }
+              exit(0);
+          }
+          fwrite(STDERR, "voku/agent-loop missing from generated lock\n");
+          exit(1);
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runner-loop-0206-lock
+          path: composer.lock
+          if-no-files-found: error
