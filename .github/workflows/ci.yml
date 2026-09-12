@@ -26,14 +26,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Checkout exact agent-loop L1-dispatch candidate
-        uses: actions/checkout@v6
-        with:
-          repository: voku/agent-loop
-          ref: 0e10f7622dbb7005f61d787234eeb1508f5b1e2f
-          path: build/candidate-agent-loop
-          persist-credentials: false
-
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
@@ -41,24 +33,31 @@ jobs:
           extensions: posix
           tools: composer:v2
 
-      - name: Validate package source before candidate injection
+      - name: Validate package source before released-owner resolution
         run: composer validate --strict
 
-      - name: Configure exact agent-loop candidate as a compatible path package
+      - name: Resolve released agent-loop owner and dependencies
+        run: composer update voku/agent-loop --with-all-dependencies --no-interaction --prefer-dist --no-progress
+
+      - name: Assert exact released agent-loop owner
         run: |
           php -r '
-          $path = "composer.json";
-          $data = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
-          $data["repositories"] = [[
-              "type" => "path",
-              "url" => "build/candidate-agent-loop",
-              "options" => ["symlink" => false, "versions" => ["voku/agent-loop" => "0.20.999"]],
-          ]];
-          file_put_contents($path, json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . PHP_EOL);
+          $json = shell_exec("composer show voku/agent-loop --format=json");
+          if (!is_string($json) || trim($json) === "") {
+              fwrite(STDERR, "Unable to inspect resolved voku/agent-loop package.\n");
+              exit(1);
+          }
+          $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+          $versions = $data["versions"] ?? [];
+          $resolved = is_array($versions) && isset($versions[0]) && is_string($versions[0])
+              ? ltrim($versions[0], "* ")
+              : null;
+          if ($resolved !== "0.20.6") {
+              fwrite(STDERR, "Expected released voku/agent-loop 0.20.6, got " . var_export($resolved, true) . ".\n");
+              exit(1);
+          }
+          fwrite(STDOUT, "Resolved released voku/agent-loop 0.20.6.\n");
           '
-
-      - name: Resolve exact agent-loop candidate and dependencies
-        run: composer update voku/agent-loop --with-all-dependencies --no-interaction --prefer-dist --no-progress
 
       - name: Lint provider smoke harness
         run: php -l tools/provider-smoke.php
