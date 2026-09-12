@@ -7,6 +7,7 @@ namespace voku\AgentLoopRunner\Tests\Integration\Execution;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use voku\AgentLoop\Execution\ExecutionGateway;
+use voku\AgentLoop\Workflow\ExecutionContractStore;
 use voku\AgentLoop\Workflow\HostFrontDoorCommand;
 use voku\AgentLoop\Workflow\WorkflowApproveCommand;
 use voku\AgentLoop\Workflow\WorkflowExecutionProfileCommand;
@@ -106,11 +107,130 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
         ob_end_clean();
         self::assertSame(0, $exit);
 
+        $host = new OutcomeHost();
+        $projection = $this->coordinator($host)->run('TASK-1');
+        self::assertTrue($projection->complete());
+        self::assertSame($agentStages, $host->executions);
+        self::assertSame($agentStages, $host->environmentBoundExecutions);
+        self::assertSame($profile, $projection->profile->value);
+        self::assertMatchesRegularExpression('/^git-tree-v1:' . preg_quote($this->base, '/') . ':[0-9a-f]{40,64}$/', $projection->candidateRevision);
+        self::assertSame($this->originalSource, file_get_contents($this->root . '/src/Foo.php'), 'Runner work must not mutate the user checkout.');
+        self::assertSame('', $this->git(['diff', '--cached', '--name-only']), 'Runner work must not mutate the user index.');
+        self::assertSame('', $this->git(['status', '--porcelain', '--untracked-files=no']), 'Tracked user checkout state must remain clean.');
+    }
+
+    public function testL2ExecutionContractReachesHostInsteadOfConstructionBriefing(): void
+    {
+        file_put_contents($this->root . '/operating-prompts.json', json_encode([
+            'schema_version' => '1.0',
+            'prompts' => [[
+                'id' => 'test-l2',
+                'level' => 2,
+                'template' => 'Create a project-specific L1 execution contract.',
+            ]],
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+
+        ob_start();
+        self::assertSame(0, (new WorkflowPlanCommand($this->root))->run([
+            'TASK-L2',
+            '--by', 'owner',
+            '--file', 'src/Foo.php',
+            '--goal', 'Prove the runner receives the final governed L1.',
+            '--validation', 'composer ci',
+            '--base-commit', $this->base,
+            '--operating-prompt-manifest', 'operating-prompts.json',
+            '--operating-prompt', '{"id":"test-l2","arguments":{}}',
+        ]));
+        self::assertSame(0, (new WorkflowApproveCommand($this->root))->run(['TASK-L2', '--by', 'owner']));
+        self::assertSame(0, (new WorkflowExecutionProfileCommand($this->root))->run([
+            'TASK-L2',
+            '--profile', 'surgical',
+            '--by', 'owner',
+        ]));
+        ob_end_clean();
+
+        ob_start();
+        $exit = (new HostFrontDoorCommand(
+            $this->root,
+            function (array $argv): int {
+                $directory = $this->root . '/.agent-loop/recall/TASK-L2';
+                mkdir($directory, 0o775, true);
+                file_put_contents($directory . '/meta.json', json_encode([
+                    'schema_version' => '1.0',
+                    'task_id' => 'TASK-L2',
+                    'compilation_id' => 'fixture-l2',
+                    'selected_guidance' => [],
+                    'selected_constraints' => [],
+                    'output_hashes' => [],
+                ], JSON_THROW_ON_ERROR));
+                file_put_contents(
+                    $directory . '/system.md',
+                    "# Recall\n## L2 Operational Prompt Construction\nCreate a project-specific L1 execution contract.\n",
+                );
+                file_put_contents($directory . '/facts.json', json_encode([
+                    'schema_version' => '1.0',
+                    'bundle_sha256' => str_repeat('a', 64),
+                    'facts' => [[
+                        'id' => 'operating-prompt.test-l2',
+                        'type' => 'operating_prompt',
+                        'authority' => 'approved_contract',
+                        'source_ref' => 'operating-prompts.json#test-l2',
+                        'scope' => ['src/Foo.php'],
+                        'payload' => [
+                            'prompt_id' => 'test-l2',
+                            'level' => 2,
+                            'arguments' => [],
+                            'content' => 'Create a project-specific L1 execution contract.',
+                            'template_sha256' => str_repeat('c', 64),
+                        ],
+                    ]],
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+
+                return 0;
+            },
+        ))->run('enter', ['TASK-L2', '--format=json']);
+        ob_end_clean();
+        self::assertSame(1, $exit, 'L2 enter must remain blocked until the concrete L1 exists.');
+
+        (new ExecutionContractStore($this->root))->writeReady('TASK-L2', 'constructor', <<<'MD'
+## Goal
+Execute the approved runner integration proof.
+
+## Context
+The acting host must consume this exact final L1, not the construction briefing.
+
+## Constraints
+Stay inside the approved task scope and preserve Loop authority.
+
+## Verification
+Run the existing Runner integration and static-analysis suites.
+
+## Done When
+Every acting host prompt contains this final contract and no L2 construction instruction.
+MD);
+
+        $host = new OutcomeHost();
+        $projection = $this->coordinator($host)->run('TASK-L2');
+
+        self::assertTrue($projection->complete());
+        self::assertSame(3, $host->executions);
+        self::assertCount(3, $host->prompts);
+        foreach ($host->prompts as $prompt) {
+            self::assertStringContainsString('# Governed execution contract', $prompt);
+            self::assertStringContainsString('The acting host must consume this exact final L1', $prompt);
+            self::assertStringNotContainsString('# Governed Recall', $prompt);
+            self::assertStringNotContainsString('L2 Operational Prompt Construction', $prompt);
+            self::assertStringNotContainsString('Create a project-specific L1 execution contract.', $prompt);
+        }
+    }
+
+    private function coordinator(OutcomeHost $host): ExecutionCoordinator
+    {
         $layout = new RunnerLayout($this->root);
         $supervisor = new ForegroundProcessSupervisor();
         $git = new GitCommand($supervisor, ['PATH' => (string) getenv('PATH')]);
-        $host = new OutcomeHost();
-        $coordinator = new ExecutionCoordinator(
+
+        return new ExecutionCoordinator(
             new AgentLoopExecutionGateway(new ExecutionGateway($this->root)),
             new RuntimeJournal($layout),
             new RunWorkspaceManager($layout, new GitWorktreeService($git), new WorkspaceCandidateHasher($git)),
@@ -120,16 +240,6 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
             $supervisor,
             new DiagnosticLogStore($layout),
         );
-
-        $projection = $coordinator->run('TASK-1');
-        self::assertTrue($projection->complete());
-        self::assertSame($agentStages, $host->executions);
-        self::assertSame($agentStages, $host->environmentBoundExecutions);
-        self::assertSame($profile, $projection->profile->value);
-        self::assertMatchesRegularExpression('/^git-tree-v1:' . preg_quote($this->base, '/') . ':[0-9a-f]{40,64}$/', $projection->candidateRevision);
-        self::assertSame($this->originalSource, file_get_contents($this->root . '/src/Foo.php'), 'Runner work must not mutate the user checkout.');
-        self::assertSame('', $this->git(['diff', '--cached', '--name-only']), 'Runner work must not mutate the user index.');
-        self::assertSame('', $this->git(['status', '--porcelain', '--untracked-files=no']), 'Tracked user checkout state must remain clean.');
     }
 
     /** @param list<string> $arguments */
@@ -156,6 +266,9 @@ final class OutcomeHost implements HostAdapter
     public int $executions = 0;
     public int $environmentBoundExecutions = 0;
 
+    /** @var list<string> */
+    public array $prompts = [];
+
     public function id(): string
     {
         return 'fake';
@@ -169,6 +282,7 @@ final class OutcomeHost implements HostAdapter
     public function execute(HostExecutionRequest $request, ProcessSupervisor $processSupervisor): HostExecutionResult
     {
         ++$this->executions;
+        $this->prompts[] = $request->prompt;
         if (str_contains($request->prompt, '# Current bounded execution environment')
             && str_contains($request->prompt, 'Observation digest: sha256:')) {
             ++$this->environmentBoundExecutions;
