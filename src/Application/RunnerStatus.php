@@ -17,6 +17,7 @@ final readonly class RunnerStatus
     public function __construct(
         public ExecutionProjection $authority,
         public ?RuntimeAttempt $observation,
+        public ?RequiredHostObservation $requiredHost = null,
     ) {
     }
 
@@ -44,6 +45,7 @@ final readonly class RunnerStatus
      *         candidate_revision: string
      *     },
      *     controls: array{run: bool, resume: bool, cancel: bool},
+     *     required_host: array{role_id: string, host_id: string, available: bool, version: string|null}|null,
      *     runner_observation: array<string, mixed>|null
      * }
      */
@@ -67,6 +69,7 @@ final readonly class RunnerStatus
                 self::RESUME => $this->allows(self::RESUME),
                 self::CANCEL => $this->allows(self::CANCEL),
             ],
+            'required_host' => $this->requiredHost?->toArray(),
             'runner_observation' => $this->observation?->toArray(),
         ];
     }
@@ -75,6 +78,9 @@ final readonly class RunnerStatus
     {
         $stageId = $this->authority->currentStageId;
         if ($this->authority->complete() || $this->authority->attention !== null || $stageId === null) {
+            return false;
+        }
+        if ($this->requiredHost !== null && !$this->requiredHost->available) {
             return false;
         }
         if ($this->observation === null) {
