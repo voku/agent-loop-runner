@@ -22,7 +22,9 @@ jobs:
           extensions: posix
           tools: composer:v2
       - name: Resolve released Loop 0.20.7 and dependencies
-        run: composer update voku/agent-loop --with-all-dependencies --no-interaction --prefer-dist --no-progress
+        run: |
+          composer config repositories.agent-loop vcs https://github.com/voku/agent-loop.git
+          composer update voku/agent-loop --with-all-dependencies --no-interaction --prefer-dist --no-progress
       - name: Prove exact released Loop lock
         run: |
           php -r '
@@ -40,6 +42,8 @@ jobs:
           fwrite(STDERR, "voku/agent-loop missing from generated lock\n");
           exit(1);
           '
+      - name: Keep repository override ephemeral
+        run: git checkout -- composer.json
       - name: Commit released lock and remove one-shot workflow
         run: |
           rm .github/workflows/lock-refresh-0207.yml
