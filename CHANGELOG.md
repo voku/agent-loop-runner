@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-13
+
+### Added
+
+- Connect `RunnerControlService::status()` to `RequiredHostPreflight` via `CurrentExecutionStageReader` to gate `run` and `resume` when the exact host required for the current execution stage is missing, stale, or mismatched.
+- Model `RequiredHostObservation` containing the required host, availability, and readiness reason.
+
+### Changed
+
+- Require released `voku/agent-loop ^0.20.7` and lock dependencies against the released 0.20.7 VCS tag.
+- Allow clean recovery and cleanup of abandoned failed provider executions without corrupting stage state.
+
+
 ## [0.1.1] - 2026-09-05
 
 ### Changed
