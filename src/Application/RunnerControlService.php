@@ -100,7 +100,11 @@ final readonly class RunnerControlService
             if ($attempt === null) {
                 throw new RuntimeException('STALE_RUN: no Runner observation identifies a workspace.');
             }
-            if (!in_array($attempt->status, [AttemptStatus::ReconciledAccepted, AttemptStatus::Cancelled], true)) {
+            $abandonableFailedProcess = $attempt->status === AttemptStatus::ProcessExited
+                && $attempt->stageResult === null
+                && $attempt->completionEnvelope === null;
+            if (!$abandonableFailedProcess
+                && !in_array($attempt->status, [AttemptStatus::ReconciledAccepted, AttemptStatus::Cancelled], true)) {
                 throw new RuntimeException('STALE_WORKSPACE: workspace has unreconciled evidence.');
             }
 
@@ -111,6 +115,9 @@ final readonly class RunnerControlService
                 new GitWorktreeService($git),
                 new WorkspaceCandidateHasher($git),
             );
+            // Failed provider attempts are abandonable only while the worktree is
+            // still clean. GitWorktreeService::remove() refuses dirty worktrees,
+            // so any candidate evidence remains fail-closed here.
             $manager->cleanup($attempt->taskId, $attempt->runId);
 
             // The workspace is gone, so the record describing it must go too.
