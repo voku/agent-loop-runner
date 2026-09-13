@@ -1,0 +1,409 @@
+name: Real governed cohort - error-handler-lib 2
+
+on:
+  workflow_dispatch:
+    inputs:
+      host:
+        description: Real provider adapter available on the self-hosted runner
+        required: true
+        default: codex
+        type: choice
+        options:
+          - codex
+          - claude
+          - opencode
+          - agy
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  cohort:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.number == 18 &&
+       github.event.comment.user.login == 'voku' &&
+       github.event.comment.body == '/run-cohort-error-handler-2')
+    runs-on: self-hosted
+    timeout-minutes: 60
+    env:
+      TASK_ID: COHORT-ERROR-HANDLER-2
+      TARGET_REPOSITORY: voku/error-handler-lib
+      TARGET_BASE_SHA: 187516f6340283911a3cc1b4d6fc3d163cebce9e
+      TARGET_ISSUE: '2'
+      TARGET_ISSUE_UPDATED_AT: '2026-09-12T16:15:13Z'
+      RUNNER_VERSION: 0.1.2
+      LOOP_VERSION: 0.20.7
+    steps:
+      - name: Resolve bounded provider input
+        id: provider
+        shell: bash
+        env:
+          DISPATCH_HOST: ${{ inputs.host }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          host='codex'
+          if [ "$EVENT_NAME" = 'workflow_dispatch' ]; then
+            host="$DISPATCH_HOST"
+          fi
+          case "$host" in
+            codex|claude|opencode|agy) ;;
+            *) printf 'Unsupported host: %s\n' "$host" >&2; exit 64 ;;
+          esac
+          printf 'host=%s\n' "$host" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact target revision
+        uses: actions/checkout@v6
+        with:
+          repository: voku/error-handler-lib
+          ref: 187516f6340283911a3cc1b4d6fc3d163cebce9e
+          path: target
+          persist-credentials: false
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          tools: composer:v2
+
+      - name: Create evidence root
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2"
+          mkdir -p "$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2"
+          printf '%s\n' "$TARGET_BASE_SHA" > "$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2/base-sha.txt"
+          git -C target rev-parse HEAD > "$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2/checked-out-sha.txt"
+          test "$(cat "$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2/checked-out-sha.txt")" = "$TARGET_BASE_SHA"
+          test -z "$(git -C target status --porcelain=v1)"
+
+      - name: Freeze current issue input before execution
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2"
+          curl --fail --silent --show-error --location \
+            -H 'Accept: application/vnd.github+json' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$TARGET_REPOSITORY/issues/$TARGET_ISSUE" \
+            > "$evidence/issue.json"
+
+          php -r '
+            $issue = json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+            if (($issue["state"] ?? null) !== "open") { throw new RuntimeException("Target issue is no longer open."); }
+            if (($issue["updated_at"] ?? null) !== $argv[2]) { throw new RuntimeException("Target issue moved since cohort preparation."); }
+            if (($issue["title"] ?? null) !== "Document the pre-1.0 integration migration for suppressedDiagnosticPolicy()") { throw new RuntimeException("Target issue title changed."); }
+          ' "$evidence/issue.json" "$TARGET_ISSUE_UPDATED_AT"
+          sha256sum "$evidence/issue.json" > "$evidence/issue.sha256"
+
+      - name: Install exact released Runner and Loop into a clean consumer
+        shell: bash
+        run: |
+          set -euo pipefail
+          consumer="$RUNNER_TEMP/agent-loop-runner-cohort-consumer"
+          evidence="$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2"
+          rm -rf "$consumer"
+          mkdir -p "$consumer"
+          cat > "$consumer/composer.json" <<'JSON'
+          {
+            "name": "voku/agent-loop-runner-cohort-consumer",
+            "type": "project",
+            "require-dev": {
+              "voku/agent-loop-runner": "0.1.2",
+              "voku/agent-loop": "0.20.7"
+            },
+            "config": {
+              "allow-plugins": false,
+              "sort-packages": true
+            }
+          }
+          JSON
+          composer update --working-dir="$consumer" --no-interaction --prefer-dist --no-progress
+
+          php -r '
+            $lock = json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+            $versions = [];
+            foreach (array_merge($lock["packages"] ?? [], $lock["packages-dev"] ?? []) as $package) {
+                $versions[$package["name"]] = [
+                    "version" => $package["version"],
+                    "source_type" => $package["source"]["type"] ?? null,
+                    "source_reference" => $package["source"]["reference"] ?? null,
+                    "dist_type" => $package["dist"]["type"] ?? null,
+                    "dist_reference" => $package["dist"]["reference"] ?? null,
+                ];
+            }
+            foreach (["voku/agent-loop-runner" => "0.1.2", "voku/agent-loop" => "0.20.7"] as $name => $expected) {
+                if (($versions[$name]["version"] ?? null) !== $expected) {
+                    throw new RuntimeException($name . " resolved unexpectedly: " . json_encode($versions[$name] ?? null));
+                }
+                if (($versions[$name]["source_type"] ?? null) === "path") {
+                    throw new RuntimeException($name . " resolved from a path repository.");
+                }
+            }
+            file_put_contents($argv[2], json_encode($versions, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+          ' "$consumer/composer.lock" "$evidence/released-packages.json"
+
+      - name: Install target dependencies
+        working-directory: target
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Create governed task from the frozen issue boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2"
+          loop="$RUNNER_TEMP/agent-loop-runner-cohort-consumer/vendor/bin/agent-loop"
+
+          (
+            cd target
+            "$loop" workflow plan "$TASK_ID" \
+              --by 'github-actions-cohort' \
+              --file README.md \
+              --goal 'Document the pre-1.0 upgrade impact of ErrorHandlerIntegrationInterface::suppressedDiagnosticPolicy() for existing custom integrations.' \
+              --scope README.md \
+              --non-goal 'Do not change runtime or API behavior.' \
+              --non-goal 'Do not add a compatibility shim, configuration framework, or new abstraction.' \
+              --acceptance 'Existing custom ErrorHandlerIntegrationInterface implementations are explicitly told they must implement suppressedDiagnosticPolicy().' \
+              --acceptance 'SuppressedDiagnosticPolicy::Observe is documented as the behavior-preserving/default migration choice.' \
+              --acceptance 'LogOnly and Ignore remain deliberate host-policy alternatives and their intended use is clear.' \
+              --acceptance 'Only README.md changes; production PHP and tests remain byte-identical.' \
+              --validation 'composer ci' \
+              --tag docs \
+              --tag migration \
+              --base-commit "$TARGET_BASE_SHA" \
+              > "$evidence/workflow-plan.txt"
+            "$loop" workflow approve "$TASK_ID" --by 'github-actions-cohort' > "$evidence/workflow-approve.txt"
+            "$loop" workflow execution-profile "$TASK_ID" --profile surgical --by 'github-actions-cohort' > "$evidence/execution-profile.txt"
+            set +e
+            "$loop" enter "$TASK_ID" --format=json > "$evidence/enter.json" 2> "$evidence/enter.stderr"
+            enter_exit=$?
+            set -e
+            printf '%s\n' "$enter_exit" > "$evidence/enter-exit-code.txt"
+          )
+
+      - name: Bind every surgical role to the explicitly selected host
+        shell: bash
+        env:
+          COHORT_HOST: ${{ steps.provider.outputs.host }}
+        run: |
+          set -euo pipefail
+          mkdir -p target/.agent-loop-runner
+          php -r '
+            $host = $argv[1];
+            $roles = [
+                "investigator" => $host,
+                "builder" => $host,
+                "reviewer" => $host,
+                "correctness-review" => $host,
+                "architecture-review" => $host,
+                "hardening" => $host,
+                "independent-verification" => $host,
+                "blindspot-review" => $host,
+            ];
+            $config = ["schema_version" => 1, "roles" => $roles, "execution" => ["timeout_seconds" => 1200]];
+            file_put_contents($argv[2], json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+          ' "$COHORT_HOST" target/.agent-loop-runner/config.json
+
+      - name: Capture doctor and fail-closed required-host preflight
+        id: preflight
+        shell: bash
+        env:
+          COHORT_HOST: ${{ steps.provider.outputs.host }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2"
+          runner="$RUNNER_TEMP/agent-loop-runner-cohort-consumer/vendor/bin/agent-loop-runner"
+          (
+            cd target
+            "$runner" doctor > "$evidence/doctor.json"
+            "$runner" status "$TASK_ID" > "$evidence/status-0.json"
+          )
+
+          php -r '
+            $status = json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+            $host = $status["required_host"] ?? null;
+            if (!is_array($host)) { throw new RuntimeException("Current stage has no required_host observation."); }
+            if (($host["host_id"] ?? null) !== $argv[2]) { throw new RuntimeException("Required host differs from explicit cohort host."); }
+            if (($host["available"] ?? null) !== true) { throw new RuntimeException("Required host is unavailable; provider spend blocked before execution."); }
+            if (($status["controls"]["run"] ?? null) !== true) { throw new RuntimeException("Runner does not authorize run after preflight."); }
+          ' "$evidence/status-0.json" "$COHORT_HOST"
+          printf 'ready=true\n' >> "$GITHUB_OUTPUT"
+
+      - name: Execute bounded surgical stages through released Runner
+        id: execute
+        if: steps.preflight.outputs.ready == 'true'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2"
+          runner="$RUNNER_TEMP/agent-loop-runner-cohort-consumer/vendor/bin/agent-loop-runner"
+          final='incomplete'
+          failure_exit=0
+
+          for attempt in 1 2 3 4 5 6; do
+            (
+              cd target
+              "$runner" status "$TASK_ID"
+            ) > "$evidence/status-$attempt-before.json"
+
+            state="$(php -r '
+              $s=json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+              if (($s["authority"]["complete"] ?? false) === true) { echo "complete"; exit; }
+              if (($s["authority"]["attention_id"] ?? null) !== null) { echo "attention"; exit; }
+              if (is_array($s["required_host"] ?? null) && (($s["required_host"]["available"] ?? false) !== true)) { echo "host_unavailable"; exit; }
+              if (($s["controls"]["run"] ?? false) === true) { echo "run"; exit; }
+              echo "blocked";
+            ' "$evidence/status-$attempt-before.json")"
+
+            case "$state" in
+              complete)
+                final='complete'
+                break
+                ;;
+              attention|host_unavailable|blocked)
+                final="$state"
+                break
+                ;;
+              run)
+                set +e
+                (
+                  cd target
+                  "$runner" run "$TASK_ID"
+                ) > "$evidence/run-$attempt.stdout" 2> "$evidence/run-$attempt.stderr"
+                rc=$?
+                set -e
+                printf '%s\n' "$rc" > "$evidence/run-$attempt-exit-code.txt"
+                if [ "$rc" -ne 0 ]; then
+                  final='runner_failure'
+                  failure_exit="$rc"
+                  break
+                fi
+                ;;
+            esac
+          done
+
+          (
+            cd target
+            "$runner" status "$TASK_ID"
+          ) > "$evidence/status-final.json" || true
+          printf '%s\n' "$final" > "$evidence/execution-result.txt"
+          printf '%s\n' "$failure_exit" > "$evidence/execution-failure-exit-code.txt"
+          echo "result=$final" >> "$GITHUB_OUTPUT"
+
+          if [ "$final" != 'complete' ]; then
+            exit 1
+          fi
+
+      - name: Capture isolated candidate evidence and deterministic scope checks
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2"
+
+          git -C target status --porcelain=v1 > "$evidence/active-checkout-status.txt"
+          git -C target diff -- README.md > "$evidence/active-checkout-readme.patch"
+          test ! -s "$evidence/active-checkout-readme.patch"
+
+          : > "$evidence/worktrees.txt"
+          : > "$evidence/candidate-files.txt"
+          : > "$evidence/candidate.patch"
+          for worktree in target/.agent-loop-runner/worktrees/*; do
+            [ -d "$worktree" ] || continue
+            printf '%s\n' "$worktree" >> "$evidence/worktrees.txt"
+            git -C "$worktree" status --porcelain=v1 >> "$evidence/worktrees.txt" || true
+            git -C "$worktree" diff --name-only "$TARGET_BASE_SHA" >> "$evidence/candidate-files.txt" || true
+            git -C "$worktree" diff --binary --no-ext-diff "$TARGET_BASE_SHA" >> "$evidence/candidate.patch" || true
+            git -C "$worktree" log --oneline "$TARGET_BASE_SHA"..HEAD >> "$evidence/local-commits.txt" || true
+          done
+
+          if [ -s "$evidence/candidate-files.txt" ]; then
+            sort -u "$evidence/candidate-files.txt" -o "$evidence/candidate-files.txt"
+            test "$(cat "$evidence/candidate-files.txt")" = 'README.md'
+          fi
+
+      - name: Validate the final isolated candidate with the target toolchain
+        if: steps.execute.outputs.result == 'complete'
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2"
+          candidate="$(find target/.agent-loop-runner/worktrees -mindepth 1 -maxdepth 1 -type d | sort | tail -n 1)"
+          test -n "$candidate"
+          composer install --working-dir="$candidate" --no-interaction --prefer-dist --no-progress
+          set +e
+          composer ci --working-dir="$candidate" > "$evidence/validation.stdout" 2> "$evidence/validation.stderr"
+          validation_exit=$?
+          set -e
+          printf '%s\n' "$validation_exit" > "$evidence/validation-exit-code.txt"
+          test "$validation_exit" -eq 0
+
+      - name: Write bounded receipt summary
+        if: always()
+        shell: bash
+        env:
+          COHORT_HOST: ${{ steps.provider.outputs.host }}
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2"
+          php -r '
+            $readJson = static fn(string $path): ?array => is_file($path) ? json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR) : null;
+            $read = static fn(string $path): ?string => is_file($path) ? trim((string) file_get_contents($path)) : null;
+            $doctor = $readJson($argv[1] . "/doctor.json");
+            $before = $readJson($argv[1] . "/status-0.json");
+            $after = $readJson($argv[1] . "/status-final.json");
+            $packages = $readJson($argv[1] . "/released-packages.json");
+            $receipt = [
+                "task_id" => getenv("TASK_ID"),
+                "repository" => getenv("TARGET_REPOSITORY"),
+                "base_sha" => getenv("TARGET_BASE_SHA"),
+                "issue_sha256" => $read($argv[1] . "/issue.sha256"),
+                "runner_release" => $packages["voku/agent-loop-runner"] ?? null,
+                "loop_release" => $packages["voku/agent-loop"] ?? null,
+                "configured_host" => $argv[2],
+                "doctor_host" => $doctor["host_" . $argv[2]] ?? null,
+                "required_host_before" => $before["required_host"] ?? null,
+                "authority_before" => $before["authority"] ?? null,
+                "controls_before" => $before["controls"] ?? null,
+                "execution_result" => $read($argv[1] . "/execution-result.txt"),
+                "authority_after" => $after["authority"] ?? null,
+                "runner_observation_after" => $after["runner_observation"] ?? null,
+                "candidate_files" => array_values(array_filter(preg_split("/\\R/", $read($argv[1] . "/candidate-files.txt") ?? "") ?: [])),
+                "validation_exit" => $read($argv[1] . "/validation-exit-code.txt"),
+                "active_checkout_readme_mutated" => is_file($argv[1] . "/active-checkout-readme.patch") && filesize($argv[1] . "/active-checkout-readme.patch") > 0,
+            ];
+            file_put_contents($argv[1] . "/receipt.json", json_encode($receipt, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+          ' "$evidence" "$COHORT_HOST"
+          cat "$evidence/receipt.json"
+          {
+            printf '## Real governed cohort receipt\n\n```json\n'
+            cat "$evidence/receipt.json"
+            printf '```\n'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload bounded cohort evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runner-cohort-error-handler-2-${{ steps.provider.outputs.host }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/agent-loop-runner-cohort-error-handler-2
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Require completed execution and target validation
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/agent-loop-runner-cohort-error-handler-2"
+          test "$(cat "$evidence/execution-result.txt" 2>/dev/null || true)" = 'complete'
+          test "$(cat "$evidence/validation-exit-code.txt" 2>/dev/null || true)" = '0'
