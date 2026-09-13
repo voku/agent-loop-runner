@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace voku\AgentLoopRunner\Application;
 
 use RuntimeException;
+use voku\AgentLoop\Execution\CurrentExecutionStageReader;
 use voku\AgentLoop\Execution\ExecutionGateway;
 use voku\AgentLoop\Execution\ExecutionProjection;
 use voku\AgentLoopRunner\Config\RunnerConfig;
@@ -21,6 +22,7 @@ use voku\AgentLoopRunner\Host\OpenCodeHostAdapter;
 use voku\AgentLoopRunner\Process\EnvironmentProjector;
 use voku\AgentLoopRunner\Process\ForegroundProcessSupervisor;
 use voku\AgentLoopRunner\Process\ProcessIdentity;
+use voku\AgentLoopRunner\Process\ProcessSupervisor;
 use voku\AgentLoopRunner\RunnerLayout;
 use voku\AgentLoopRunner\Runtime\AttemptStatus;
 use voku\AgentLoopRunner\Runtime\RunExecutionLock;
@@ -38,16 +40,42 @@ use voku\AgentLoopRunner\Workspace\WorkspaceCandidateHasher;
  */
 final readonly class RunnerControlService
 {
-    public function __construct(private string $projectRoot)
-    {
+    /**
+     * @param array<string, HostAdapter>|null $hosts
+     * @param array<string, string>|null $environment
+     */
+    public function __construct(
+        private string $projectRoot,
+        private ?RequiredHostPreflight $preflight = null,
+        private ?CurrentExecutionStageReader $stageReader = null,
+        private ?ExecutionGateway $executionGateway = null,
+        private ?RuntimeJournal $journal = null,
+        private ?RunnerConfig $config = null,
+        private ?array $hosts = null,
+        private ?ProcessSupervisor $supervisor = null,
+        private ?array $environment = null,
+    ) {
     }
 
     public function status(string $taskId): RunnerStatus
     {
-        $authority = (new ExecutionGateway($this->projectRoot))->projection($taskId);
-        $observation = (new RuntimeJournal(new RunnerLayout($this->projectRoot)))->load($taskId);
+        $authority = ($this->executionGateway ?? new ExecutionGateway($this->projectRoot))->projection($taskId);
+        $observation = ($this->journal ?? new RuntimeJournal(new RunnerLayout($this->projectRoot)))->load($taskId);
+        $stage = ($this->stageReader ?? new CurrentExecutionStageReader($this->projectRoot))->read($taskId);
 
-        return new RunnerStatus($authority, $observation);
+        $preflight = $this->preflight ?? $this->defaultPreflight();
+        $requiredHost = $preflight->observe($authority, $stage, $this->projectRoot);
+
+        return new RunnerStatus($authority, $observation, $requiredHost);
+    }
+
+    private function defaultPreflight(): RequiredHostPreflight
+    {
+        $config = $this->config ?? RunnerConfig::load($this->projectRoot);
+        $supervisor = $this->supervisor ?? new ForegroundProcessSupervisor();
+        $environment = $this->environment ?? (new EnvironmentProjector())->project($config->environmentAllowlist);
+
+        return new RequiredHostPreflight($config, $this->hosts ?? $this->hosts($config), $supervisor, $environment);
     }
 
     public function run(string $taskId): ExecutionProjection

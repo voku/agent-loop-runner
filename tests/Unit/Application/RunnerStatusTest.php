@@ -70,6 +70,65 @@ final class RunnerStatusTest extends TestCase
         self::assertFalse($status->allows(RunnerStatus::CANCEL));
     }
 
+    public function testRequiredHostUnavailableBlocksRunAndResume(): void
+    {
+        $status = new RunnerStatus(
+            $this->authority(),
+            $this->observation(AttemptStatus::Prepared),
+            new \voku\AgentLoopRunner\Application\RequiredHostObservation(
+                'builder',
+                'codex',
+                false,
+                null,
+            ),
+        );
+
+        self::assertFalse($status->allows(RunnerStatus::RUN));
+        self::assertFalse($status->allows(RunnerStatus::RESUME));
+        self::assertFalse($status->allows(RunnerStatus::CANCEL));
+    }
+
+    public function testRequiredHostAvailableAllowsRunAndResume(): void
+    {
+        $status = new RunnerStatus(
+            $this->authority(),
+            $this->observation(AttemptStatus::Prepared),
+            new \voku\AgentLoopRunner\Application\RequiredHostObservation(
+                'builder',
+                'codex',
+                true,
+                '1.0.0',
+            ),
+        );
+
+        self::assertTrue($status->allows(RunnerStatus::RUN));
+        self::assertTrue($status->allows(RunnerStatus::RESUME));
+        self::assertFalse($status->allows(RunnerStatus::CANCEL));
+    }
+
+    public function testRequiredHostSerializesInToArray(): void
+    {
+        $withHost = new RunnerStatus(
+            $this->authority(),
+            null,
+            new \voku\AgentLoopRunner\Application\RequiredHostObservation(
+                'builder',
+                'codex',
+                true,
+                '2.5.0',
+            ),
+        );
+        self::assertSame([
+            'role_id' => 'builder',
+            'host_id' => 'codex',
+            'available' => true,
+            'version' => '2.5.0',
+        ], $withHost->toArray()['required_host']);
+
+        $withoutHost = new RunnerStatus($this->authority(), null, null);
+        self::assertNull($withoutHost->toArray()['required_host']);
+    }
+
     private function authority(): ExecutionProjection
     {
         return new ExecutionProjection(
