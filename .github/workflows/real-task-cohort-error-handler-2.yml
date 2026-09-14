@@ -37,7 +37,7 @@ jobs:
       TARGET_ISSUE: '2'
       TARGET_ISSUE_UPDATED_AT: '2026-09-12T16:15:13Z'
       RUNNER_VERSION: 0.1.2
-      LOOP_VERSION: 0.20.7
+      LOOP_VERSION: 0.20.10
     steps:
       - name: Resolve bounded provider input
         id: provider
@@ -118,7 +118,7 @@ jobs:
             "type": "project",
             "require-dev": {
               "voku/agent-loop-runner": "0.1.2",
-              "voku/agent-loop": "0.20.7"
+              "voku/agent-loop": "0.20.10"
             },
             "config": {
               "allow-plugins": false,
@@ -140,7 +140,7 @@ jobs:
                     "dist_reference" => $package["dist"]["reference"] ?? null,
                 ];
             }
-            foreach (["voku/agent-loop-runner" => "0.1.2", "voku/agent-loop" => "0.20.7"] as $name => $expected) {
+            foreach (["voku/agent-loop-runner" => "0.1.2", "voku/agent-loop" => "0.20.10"] as $name => $expected) {
                 if (($versions[$name]["version"] ?? null) !== $expected) {
                     throw new RuntimeException($name . " resolved unexpectedly: " . json_encode($versions[$name] ?? null));
                 }
