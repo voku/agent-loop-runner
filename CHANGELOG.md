@@ -6,6 +6,10 @@
 
 - Add optional per-role model and reasoning-effort policies for Codex host execution, while keeping workflow authority and execution topology in `agent-loop`.
 
+### Fixed
+
+- Refresh the CI exact-owner proof to the currently released `voku/agent-loop 0.20.28`.
+
 ## [0.1.2] - 2026-09-13
 
 ### Added

@@ -52,11 +52,11 @@ jobs:
           $resolved = is_array($versions) && isset($versions[0]) && is_string($versions[0])
               ? ltrim($versions[0], "* ")
               : null;
-          if ($resolved !== "0.20.10") {
-              fwrite(STDERR, "Expected released voku/agent-loop 0.20.10, got " . var_export($resolved, true) . ".\n");
+          if ($resolved !== "0.20.28") {
+              fwrite(STDERR, "Expected released voku/agent-loop 0.20.28, got " . var_export($resolved, true) . ".\n");
               exit(1);
           }
-          fwrite(STDOUT, "Resolved released voku/agent-loop 0.20.10.\n");
+          fwrite(STDOUT, "Resolved released voku/agent-loop 0.20.28.\n");
           '
 
       - name: Lint provider smoke harness
