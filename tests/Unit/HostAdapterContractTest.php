@@ -118,6 +118,32 @@ final class HostAdapterContractTest extends TestCase
             rmdir($root);
         }
     }
+
+    public function testCodexReceivesConfiguredModelAndReasoningEffort(): void
+    {
+        $supervisor = new RecordingProcessSupervisor();
+
+        (new CodexHostAdapter($this->binary))->execute(new HostExecutionRequest(
+            'investigator',
+            sys_get_temp_dir(),
+            'prompt',
+            ['RUNNER_TEST' => '1'],
+            30,
+            model: 'gpt-5.6-luna',
+            reasoningEffort: 'low',
+        ), $supervisor);
+
+        self::assertSame([
+            $this->binary,
+            'exec',
+            '--ephemeral',
+            '--model',
+            'gpt-5.6-luna',
+            '--config',
+            'model_reasoning_effort=low',
+            '-',
+        ], $supervisor->lastRequest?->argv);
+    }
 }
 
 final class RecordingProcessSupervisor implements ProcessSupervisor

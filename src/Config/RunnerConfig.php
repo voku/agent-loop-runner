@@ -16,6 +16,7 @@ final readonly class RunnerConfig
     /**
      * @param array<string, array{binary: non-empty-string}> $hosts
      * @param array<string, non-empty-string> $roles
+     * @param array<string, ModelPolicy> $modelPolicies
      * @param list<non-empty-string> $environmentAllowlist
      */
     public function __construct(
@@ -23,6 +24,7 @@ final readonly class RunnerConfig
         public array $roles,
         public int $timeoutSeconds,
         public array $environmentAllowlist,
+        public array $modelPolicies = [],
     ) {
         if ($this->timeoutSeconds < 1) {
             throw new RuntimeException('Runner timeout must be a positive integer.');
@@ -35,6 +37,11 @@ final readonly class RunnerConfig
         foreach ($this->roles as $roleId => $hostId) {
             if (!isset($this->hosts[$hostId])) {
                 throw new RuntimeException('Runner role ' . $roleId . ' references unknown host ' . $hostId . '.');
+            }
+        }
+        foreach ($this->modelPolicies as $roleId => $policy) {
+            if (trim($roleId) === '' || !isset($this->roles[$roleId])) {
+                throw new RuntimeException('Runner model policies require a role id and ModelPolicy value.');
             }
         }
     }
@@ -74,8 +81,12 @@ final readonly class RunnerConfig
             $execution['environment_allowlist'] ?? $defaults->environmentAllowlist,
             'execution.environment_allowlist',
         );
+        $modelPolicies = self::modelPolicies(
+            $execution['model_policies'] ?? null,
+            $defaults->modelPolicies,
+        );
 
-        return new self($hosts, $roles, $timeout, $allowlist);
+        return new self($hosts, $roles, $timeout, $allowlist, $modelPolicies);
     }
 
     public static function defaults(): self
@@ -131,6 +142,11 @@ final readonly class RunnerConfig
         }
 
         return trim($host['binary']);
+    }
+
+    public function modelPolicyForRole(string $roleId): ?ModelPolicy
+    {
+        return $this->modelPolicies[$roleId] ?? null;
     }
 
     /**
@@ -193,6 +209,41 @@ final readonly class RunnerConfig
         }
 
         return $roles;
+    }
+
+    /**
+     * @param array<string, ModelPolicy> $defaults
+     * @return array<string, ModelPolicy>
+     */
+    private static function modelPolicies(mixed $value, array $defaults): array
+    {
+        if ($value === null) {
+            return $defaults;
+        }
+        if (!is_array($value)) {
+            throw new RuntimeException('Runner config execution.model_policies must be an object.');
+        }
+        $policies = $defaults;
+        foreach ($value as $role => $entry) {
+            if (!is_string($role) || trim($role) === '' || !is_array($entry)) {
+                throw new RuntimeException('Runner model policy entries require a role id and object value.');
+            }
+            $model = $entry['model'] ?? null;
+            $effort = $entry['reasoning_effort'] ?? null;
+            if (!is_string($model) || trim($model) === '') {
+                throw new RuntimeException('Runner model policy ' . $role . ' requires a non-empty model.');
+            }
+            if ($effort !== null && (!is_string($effort) || trim($effort) === '')) {
+                throw new RuntimeException('Runner model policy ' . $role . ' reasoning_effort must be a non-empty string.');
+            }
+            try {
+                $policies[trim($role)] = new ModelPolicy(trim($model), is_string($effort) ? trim($effort) : null);
+            } catch (\InvalidArgumentException $exception) {
+                throw new RuntimeException('Invalid runner model policy ' . $role . ': ' . $exception->getMessage(), 0, $exception);
+            }
+        }
+
+        return $policies;
     }
 
     /** @return list<non-empty-string> */

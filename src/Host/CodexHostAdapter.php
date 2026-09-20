@@ -14,7 +14,18 @@ final readonly class CodexHostAdapter extends AbstractCliHostAdapter
     /** @param non-empty-string $binaryPath */
     protected function argv(string $binaryPath, HostExecutionRequest $request): array
     {
-        return [$binaryPath, 'exec', '--ephemeral', '-'];
+        $argv = [$binaryPath, 'exec', '--ephemeral'];
+        if ($request->model !== null) {
+            $argv[] = '--model';
+            $argv[] = $request->model;
+        }
+        if ($request->reasoningEffort !== null) {
+            $argv[] = '--config';
+            $argv[] = 'model_reasoning_effort=' . $request->reasoningEffort;
+        }
+        $argv[] = '-';
+
+        return $argv;
     }
 
     protected function stdin(HostExecutionRequest $request): string

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- Add optional per-role model and reasoning-effort policies for Codex host execution, while keeping workflow authority and execution topology in `agent-loop`.
+
 ## [0.1.2] - 2026-09-13
 
 ### Added

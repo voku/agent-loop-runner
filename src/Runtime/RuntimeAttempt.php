@@ -18,7 +18,7 @@ final readonly class RuntimeAttempt
     /**
      * @param non-empty-string|null $candidateRevision
      * @param array<string, mixed>|null $stageResult
-     * @param array{pid?: int, started_at?: non-empty-string, exited_at?: non-empty-string, exit_code?: int, timed_out?: bool, stdout_log?: non-empty-string, stderr_log?: non-empty-string, stdout_sha256?: non-empty-string, stderr_sha256?: non-empty-string, stdout_truncated?: bool, stderr_truncated?: bool, process_fingerprint?: non-empty-string} $process
+     * @param array{pid?: int, started_at?: non-empty-string, exited_at?: non-empty-string, exit_code?: int, timed_out?: bool, stdout_log?: non-empty-string, stderr_log?: non-empty-string, stdout_sha256?: non-empty-string, stderr_sha256?: non-empty-string, stdout_truncated?: bool, stderr_truncated?: bool, process_fingerprint?: non-empty-string, model?: non-empty-string, reasoning_effort?: non-empty-string} $process
      * @param array{outcome: non-empty-string, summary: non-empty-string, artifact_references: list<non-empty-string>, validation_references: list<non-empty-string>}|null $completionEnvelope
      */
     public function __construct(
@@ -172,11 +172,11 @@ final readonly class RuntimeAttempt
 
     /**
      * @param array<mixed> $process
-     * @return array{pid?: int, started_at?: non-empty-string, exited_at?: non-empty-string, exit_code?: int, timed_out?: bool, stdout_log?: non-empty-string, stderr_log?: non-empty-string, stdout_sha256?: non-empty-string, stderr_sha256?: non-empty-string, stdout_truncated?: bool, stderr_truncated?: bool, process_fingerprint?: non-empty-string}
+     * @return array{pid?: int, started_at?: non-empty-string, exited_at?: non-empty-string, exit_code?: int, timed_out?: bool, stdout_log?: non-empty-string, stderr_log?: non-empty-string, stdout_sha256?: non-empty-string, stderr_sha256?: non-empty-string, stdout_truncated?: bool, stderr_truncated?: bool, process_fingerprint?: non-empty-string, model?: non-empty-string, reasoning_effort?: non-empty-string}
      */
     private static function process(array $process): array
     {
-        $allowed = ['pid', 'started_at', 'exited_at', 'exit_code', 'timed_out', 'stdout_log', 'stderr_log', 'stdout_sha256', 'stderr_sha256', 'stdout_truncated', 'stderr_truncated', 'process_fingerprint'];
+        $allowed = ['pid', 'started_at', 'exited_at', 'exit_code', 'timed_out', 'stdout_log', 'stderr_log', 'stdout_sha256', 'stderr_sha256', 'stdout_truncated', 'stderr_truncated', 'process_fingerprint', 'model', 'reasoning_effort'];
         foreach (array_keys($process) as $key) {
             if (!is_string($key) || !in_array($key, $allowed, true)) {
                 throw new CorruptRuntimeJournal('Runtime journal process metadata contains an unknown field.');
@@ -191,7 +191,7 @@ final readonly class RuntimeAttempt
                 $result[$key] = $process[$key];
             }
         }
-        foreach (['started_at', 'exited_at', 'stdout_log', 'stderr_log', 'stdout_sha256', 'stderr_sha256', 'process_fingerprint'] as $key) {
+        foreach (['started_at', 'exited_at', 'stdout_log', 'stderr_log', 'stdout_sha256', 'stderr_sha256', 'process_fingerprint', 'model', 'reasoning_effort'] as $key) {
             if (isset($process[$key])) {
                 if (!is_string($process[$key]) || $process[$key] === '') {
                     throw new CorruptRuntimeJournal('Invalid process string metadata.');
