@@ -154,6 +154,7 @@ final readonly class ExecutionCoordinator
                         $bundle->candidateRevision,
                     );
                     $hostId = $this->config->hostForRole($roleId);
+                    $modelPolicy = $this->config->modelPolicyForRole($roleId);
                     $host = $this->hosts[$hostId] ?? null;
                     if (!$host instanceof HostAdapter) {
                         throw new RuntimeException('HOST_UNAVAILABLE: ' . $hostId);
@@ -215,6 +216,8 @@ final readonly class ExecutionCoordinator
                             $environment,
                             $this->config->timeoutSeconds,
                             new JournalProcessObserver($this->journal, $attempt),
+                            $modelPolicy?->model,
+                            $modelPolicy?->reasoningEffort,
                         ),
                         $this->supervisor,
                     );
@@ -236,6 +239,10 @@ final readonly class ExecutionCoordinator
                             'exit_code' => $result->process->exitCode,
                             'timed_out' => $result->process->timedOut,
                         ],
+                        array_filter([
+                            'model' => $modelPolicy?->model,
+                            'reasoning_effort' => $modelPolicy?->reasoningEffort,
+                        ], static fn (mixed $value): bool => is_string($value) && $value !== ''),
                         $logEvidence,
                     );
                     if ($result->process->timedOut) {

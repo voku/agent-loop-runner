@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace voku\AgentLoopRunner\Tests\Integration\Application;
 
 use PHPUnit\Framework\TestCase;
+use voku\AgentRecallCompiler\CompileRequest;
+use voku\AgentRecallCompiler\CompileResult;
 use voku\AgentLoop\Workflow\HostFrontDoorCommand;
 use voku\AgentLoop\Workflow\WorkflowApproveCommand;
 use voku\AgentLoop\Workflow\WorkflowExecutionProfileCommand;
@@ -58,8 +60,8 @@ final class RunnerControlServiceStatusTest extends TestCase
         ob_start();
         $exit = (new HostFrontDoorCommand(
             $this->root,
-            function (array $argv): int {
-                $directory = $this->root . '/.agent-loop/recall/TASK-1';
+            function (CompileRequest $request): CompileResult {
+                $directory = $request->outputDirectory;
                 mkdir($directory, 0o775, true);
                 file_put_contents($directory . '/meta.json', json_encode([
                     'schema_version' => '1.0',
@@ -71,7 +73,7 @@ final class RunnerControlServiceStatusTest extends TestCase
                 ], JSON_THROW_ON_ERROR));
                 file_put_contents($directory . '/system.md', "# Recall\nStay governed.\n");
 
-                return 0;
+                return new CompileResult($directory, 'fixture', str_repeat('a', 64));
             },
         ))->run('enter', ['TASK-1', '--format=json']);
         ob_end_clean();

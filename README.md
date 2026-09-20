@@ -29,7 +29,7 @@ agent-loop (authoritative governance root)
 | --- | --- |
 | PHP | `^8.3` |
 | Git | `^2.25` (worktrees supported) |
-| `voku/agent-loop` | `^0.19.0` |
+| `voku/agent-loop` | `^0.20.28` |
 | Coding Host(s) | At least one installed CLI: Codex, Claude Code, OpenCode, or Antigravity (`agy`) |
 
 ## Installation
@@ -121,6 +121,16 @@ Runner configuration is optional. When `.agent-loop-runner/config.json` is absen
   },
   "execution": {
     "timeout_seconds": 1800,
+    "model_policies": {
+      "investigator": {
+        "model": "gpt-5.6-luna",
+        "reasoning_effort": "low"
+      },
+      "builder": {
+        "model": "gpt-5.6",
+        "reasoning_effort": "high"
+      }
+    },
     "environment_allowlist": [
       "PATH", "HOME", "USER", "LOGNAME", "TMPDIR",
       "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN",
@@ -129,6 +139,12 @@ Runner configuration is optional. When `.agent-loop-runner/config.json` is absen
   }
 }
 ```
+
+`model_policies` is optional runtime configuration. It maps an already-authorized
+execution role to provider settings; it does not change the Loop Contract, stage
+permissions, or workflow outcome. The built-in Codex adapter applies `model` as
+`--model` and `reasoning_effort` as `--config model_reasoning_effort=...`. Other
+host adapters currently retain their provider defaults.
 
 ## Host defaults
 
