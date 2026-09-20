@@ -5,6 +5,7 @@
 ### Added
 
 - Add optional per-role model and reasoning-effort policies for Codex host execution, while keeping workflow authority and execution topology in `agent-loop`.
+- Require the released typed `agent-loop 0.20.28` execution-owner API used by the Runner integration proof.
 
 ### Fixed
 

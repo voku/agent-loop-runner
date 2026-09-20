@@ -29,7 +29,7 @@ agent-loop (authoritative governance root)
 | --- | --- |
 | PHP | `^8.3` |
 | Git | `^2.25` (worktrees supported) |
-| `voku/agent-loop` | `^0.19.0` |
+| `voku/agent-loop` | `^0.20.28` |
 | Coding Host(s) | At least one installed CLI: Codex, Claude Code, OpenCode, or Antigravity (`agy`) |
 
 ## Installation

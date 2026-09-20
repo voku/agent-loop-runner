@@ -6,6 +6,8 @@ namespace voku\AgentLoopRunner\Tests\Integration\Execution;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use voku\AgentRecallCompiler\CompileRequest;
+use voku\AgentRecallCompiler\CompileResult;
 use voku\AgentLoop\Execution\ExecutionGateway;
 use voku\AgentLoop\Workflow\ExecutionContractStore;
 use voku\AgentLoop\Workflow\HostFrontDoorCommand;
@@ -88,8 +90,8 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
         ob_start();
         $exit = (new HostFrontDoorCommand(
             $this->root,
-            function (array $argv): int {
-                $directory = $this->root . '/.agent-loop/recall/TASK-1';
+            function (CompileRequest $request): CompileResult {
+                $directory = $request->outputDirectory;
                 mkdir($directory, 0o775, true);
                 file_put_contents($directory . '/meta.json', json_encode([
                     'schema_version' => '1.0',
@@ -101,7 +103,7 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
                 ], JSON_THROW_ON_ERROR));
                 file_put_contents($directory . '/system.md', "# Recall\nStay governed.\n");
 
-                return 0;
+                return new CompileResult($directory, 'fixture', str_repeat('a', 64));
             },
         ))->run('enter', ['TASK-1', '--format=json']);
         ob_end_clean();
@@ -152,8 +154,8 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
         ob_start();
         $exit = (new HostFrontDoorCommand(
             $this->root,
-            function (array $argv): int {
-                $directory = $this->root . '/.agent-loop/recall/TASK-L2';
+            function (CompileRequest $request): CompileResult {
+                $directory = $request->outputDirectory;
                 mkdir($directory, 0o775, true);
                 file_put_contents($directory . '/meta.json', json_encode([
                     'schema_version' => '1.0',
@@ -186,7 +188,7 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
                     ]],
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
 
-                return 0;
+                return new CompileResult($directory, 'fixture-l2', str_repeat('a', 64));
             },
         ))->run('enter', ['TASK-L2', '--format=json']);
         ob_end_clean();
