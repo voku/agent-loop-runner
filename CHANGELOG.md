@@ -11,6 +11,18 @@
 
 - Refresh the CI exact-owner proof to the currently released `voku/agent-loop 0.20.28`.
 
+## [0.1.4] - 2026-09-21
+
+### Added
+
+- Add configurable provider capacity probes with JSON/text parsing, reset-time observations, and quota-limit detection for coding-agent hosts.
+- Route near-limit stages to configured role or host fallbacks, or stop before worktree creation with an explanatory `QUOTA_LIMIT_REACHED` message.
+- Add quota enforcement coverage and the `quota-dogfood.php` self-dogfood tool.
+
+### Changed
+
+- Keep provider capacity and fallback decisions in Runner runtime observations without changing `agent-loop` workflow authority.
+
 ## [0.1.2] - 2026-09-13
 
 ### Added

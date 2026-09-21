@@ -144,16 +144,66 @@ final class HostAdapterContractTest extends TestCase
             '-',
         ], $supervisor->lastRequest?->argv);
     }
+
+    public function testQuotaFailureDuringVersionProbeRemainsRoutableAsCapacityObservation(): void
+    {
+        $supervisor = new RecordingProcessSupervisor(
+            1,
+            '',
+            'You have hit your usage limit. Please try again in 2h.',
+        );
+
+        $availability = (new CodexHostAdapter($this->binary))->probe(
+            $supervisor,
+            sys_get_temp_dir(),
+            ['PATH' => '/bin'],
+        );
+
+        self::assertTrue($availability->available());
+        self::assertSame(1.0, $availability->usageRatio());
+        self::assertSame('quota limit reached (exhausted) (resets in ~120m)', $availability->capacitySummary);
+    }
+
+    public function testConfiguredResourceCommandIsProbedAfterVersion(): void
+    {
+        $supervisor = new RecordingProcessSupervisor();
+        $supervisor->responses = [
+            new ProcessResult(0, 'codex-cli 1.0', '', false, 'start', 'finish'),
+            new ProcessResult(0, '{"remaining_percent":4,"reset_in_seconds":3600}', '', false, 'start', 'finish'),
+        ];
+
+        $availability = (new CodexHostAdapter(
+            $this->binary,
+            resourceCommand: ['codex-cli-usage', 'json'],
+        ))->probe($supervisor, sys_get_temp_dir(), ['PATH' => '/bin']);
+
+        self::assertTrue($availability->available());
+        self::assertSame(0.96, $availability->usageRatio());
+        self::assertSame(['codex-cli-usage', 'json'], $supervisor->lastRequest?->argv);
+    }
 }
 
 final class RecordingProcessSupervisor implements ProcessSupervisor
 {
     public ?ProcessRequest $lastRequest = null;
+    /** @var list<ProcessResult> */
+    public array $responses = [];
+
+    public function __construct(
+        private int $exitCode = 0,
+        private string $stdout = 'ok',
+        private string $stderr = '',
+    ) {
+    }
 
     public function run(ProcessRequest $request): ProcessResult
     {
         $this->lastRequest = $request;
 
-        return new ProcessResult(0, 'ok', '', false, '2026-08-23T00:00:00+00:00', '2026-08-23T00:00:01+00:00');
+        if ($this->responses !== []) {
+            return array_shift($this->responses);
+        }
+
+        return new ProcessResult($this->exitCode, $this->stdout, $this->stderr, false, '2026-08-23T00:00:00+00:00', '2026-08-23T00:00:01+00:00');
     }
 }

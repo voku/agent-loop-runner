@@ -47,6 +47,28 @@ final readonly class RequiredHostPreflight
         }
 
         $availability = $host->probe($this->supervisor, $workingDirectory, $this->environment);
+        if ($availability->isNearLimit($this->config->quotaUsageThreshold)) {
+            $fallbackHostId = $this->config->fallbackHostForRole($stage->roleId);
+            $fallbackHost = $fallbackHostId !== null ? ($this->hosts[$fallbackHostId] ?? null) : null;
+            if ($fallbackHost instanceof HostAdapter && $fallbackHostId !== $hostId) {
+                $fallbackAvailability = $fallbackHost->probe($this->supervisor, $workingDirectory, $this->environment);
+                if ($fallbackAvailability->available() && !$fallbackAvailability->isNearLimit($this->config->quotaUsageThreshold)) {
+                    return new RequiredHostObservation(
+                        $stage->roleId,
+                        $fallbackHostId,
+                        true,
+                        $fallbackAvailability->version,
+                    );
+                }
+            }
+
+            return new RequiredHostObservation(
+                $stage->roleId,
+                $hostId,
+                false,
+                $availability->version,
+            );
+        }
 
         return new RequiredHostObservation(
             $stage->roleId,

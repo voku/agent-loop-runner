@@ -104,7 +104,11 @@ Runner configuration is optional. When `.agent-loop-runner/config.json` is absen
 {
   "schema_version": 1,
   "hosts": {
-    "codex": { "binary": "codex" },
+    "codex": {
+      "binary": "codex",
+      "resource_command": ["codex-cli-usage", "json"],
+      "fallback": "claude"
+    },
     "claude": { "binary": "claude" },
     "opencode": { "binary": "opencode" },
     "agy": { "binary": "agy" }
@@ -119,8 +123,12 @@ Runner configuration is optional. When `.agent-loop-runner/config.json` is absen
     "independent-verification": "claude",
     "blindspot-review": "claude"
   },
+  "role_fallbacks": {
+    "builder": "claude"
+  },
   "execution": {
     "timeout_seconds": 1800,
+    "quota_usage_threshold": 0.95,
     "model_policies": {
       "investigator": {
         "model": "gpt-5.6-luna",
@@ -145,6 +153,23 @@ execution role to provider settings; it does not change the Loop Contract, stage
 permissions, or workflow outcome. The built-in Codex adapter applies `model` as
 `--model` and `reasoning_effort` as `--config model_reasoning_effort=...`. Other
 host adapters currently retain their provider defaults.
+
+`resource_command` is an optional, argv-style capacity probe for a host. It is
+run after the version probe and must not contain shell syntax. Runner accepts
+the same bounded JSON/text forms used by the housekeeping capacity inspector,
+including `remaining_percent`, `used_percent`, `used` plus `total`, and text
+such as `95% used resets in 2h`. A provider-specific usage-limit error is also
+recognized as exhausted capacity. The probe is advisory when it returns no
+parseable capacity data; credentials and provider-specific commands remain
+operator configuration.
+
+When observed usage is at or above `execution.quota_usage_threshold` (95% by
+default), Runner probes the configured fallback before creating a Run worktree.
+`role_fallbacks` takes precedence over a host-level `fallback`. A healthy
+fallback is recorded in the environment observation and executed. If no
+fallback is configured, or it is unavailable/near its own limit, execution
+stops before starting the agent and reports `QUOTA_LIMIT_REACHED` with the
+reset time when available and the configuration needed to recover.
 
 ## Host defaults
 

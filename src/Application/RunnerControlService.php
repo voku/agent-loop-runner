@@ -185,10 +185,10 @@ final readonly class RunnerControlService
     private function hosts(RunnerConfig $config): array
     {
         return [
-            'codex' => new CodexHostAdapter($config->binary('codex')),
-            'claude' => new ClaudeHostAdapter($config->binary('claude')),
-            'opencode' => new OpenCodeHostAdapter($config->binary('opencode')),
-            'agy' => new AgyHostAdapter($config->binary('agy')),
+            'codex' => new CodexHostAdapter($config->binary('codex'), resourceCommand: $config->resourceCommandForHost('codex')),
+            'claude' => new ClaudeHostAdapter($config->binary('claude'), resourceCommand: $config->resourceCommandForHost('claude')),
+            'opencode' => new OpenCodeHostAdapter($config->binary('opencode'), resourceCommand: $config->resourceCommandForHost('opencode')),
+            'agy' => new AgyHostAdapter($config->binary('agy'), resourceCommand: $config->resourceCommandForHost('agy')),
         ];
     }
 }

@@ -107,10 +107,10 @@ final readonly class RunnerApplication
     private function hosts(RunnerConfig $config): array
     {
         return [
-            'codex' => new CodexHostAdapter($config->binary('codex')),
-            'claude' => new ClaudeHostAdapter($config->binary('claude')),
-            'opencode' => new OpenCodeHostAdapter($config->binary('opencode')),
-            'agy' => new AgyHostAdapter($config->binary('agy')),
+            'codex' => new CodexHostAdapter($config->binary('codex'), resourceCommand: $config->resourceCommandForHost('codex')),
+            'claude' => new ClaudeHostAdapter($config->binary('claude'), resourceCommand: $config->resourceCommandForHost('claude')),
+            'opencode' => new OpenCodeHostAdapter($config->binary('opencode'), resourceCommand: $config->resourceCommandForHost('opencode')),
+            'agy' => new AgyHostAdapter($config->binary('agy'), resourceCommand: $config->resourceCommandForHost('agy')),
         ];
     }
 
@@ -154,6 +154,7 @@ final readonly class RunnerApplication
     {
         foreach ([
             'HOST_UNAVAILABLE' => ExitCode::HOST_UNAVAILABLE,
+            'QUOTA_LIMIT_REACHED' => ExitCode::HOST_UNAVAILABLE,
             'PROCESS_TIMEOUT' => ExitCode::PROCESS_TIMEOUT,
             'PROCESS_FAILED' => ExitCode::PROCESS_FAILED,
             'INVALID_STAGE_RESULT' => ExitCode::INVALID_STAGE_RESULT,

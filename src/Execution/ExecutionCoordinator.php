@@ -144,6 +144,42 @@ final readonly class ExecutionCoordinator
                     if ($local !== null && $local->status !== AttemptStatus::Prepared) {
                         throw new RuntimeException('PROCESS_FAILED: incomplete prior process observation requires operator evidence.');
                     }
+                    $primaryHostId = $this->config->hostForRole($roleId);
+                    $modelPolicy = $this->config->modelPolicyForRole($roleId);
+                    $host = $this->hosts[$primaryHostId] ?? null;
+                    if (!$host instanceof HostAdapter) {
+                        throw new RuntimeException('HOST_UNAVAILABLE: ' . $primaryHostId);
+                    }
+
+                    $environment = (new EnvironmentProjector())->project($this->config->environmentAllowlist);
+                    // Capacity is an execution gate. Probe before creating a
+                    // Run worktree so a hard break leaves no orphaned workspace
+                    // or Runner observation behind.
+                    $availability = $host->probe($this->supervisor, $bundle->repositoryRoot, $environment);
+                    if (!$availability->available()) {
+                        throw new RuntimeException('HOST_UNAVAILABLE: ' . $primaryHostId);
+                    }
+
+                    $hostId = $primaryHostId;
+                    if ($availability->isNearLimit($this->config->quotaUsageThreshold)) {
+                        $fallbackHostId = $this->config->fallbackHostForRole($roleId);
+                        $fallbackHost = $fallbackHostId !== null ? ($this->hosts[$fallbackHostId] ?? null) : null;
+                        $fallbackAvailability = null;
+                        if ($fallbackHost instanceof HostAdapter && $fallbackHostId !== $primaryHostId) {
+                            $fallbackAvailability = $fallbackHost->probe($this->supervisor, $bundle->repositoryRoot, $environment);
+                        }
+
+                        if ($fallbackAvailability !== null
+                            && $fallbackAvailability->available()
+                            && !$fallbackAvailability->isNearLimit($this->config->quotaUsageThreshold)
+                        ) {
+                            $hostId = $fallbackHostId;
+                            $host = $fallbackHost;
+                            $availability = $fallbackAvailability;
+                        } else {
+                            throw $this->quotaHardBreakException($roleId, $primaryHostId, $availability, $fallbackHostId, $fallbackAvailability);
+                        }
+                    }
                     $workspace = $this->workspaces->acquire(
                         $bundle->taskId,
                         $bundle->runId,
@@ -153,18 +189,6 @@ final readonly class ExecutionCoordinator
                         $bundle->mayMutate,
                         $bundle->candidateRevision,
                     );
-                    $hostId = $this->config->hostForRole($roleId);
-                    $modelPolicy = $this->config->modelPolicyForRole($roleId);
-                    $host = $this->hosts[$hostId] ?? null;
-                    if (!$host instanceof HostAdapter) {
-                        throw new RuntimeException('HOST_UNAVAILABLE: ' . $hostId);
-                    }
-
-                    $environment = (new EnvironmentProjector())->project($this->config->environmentAllowlist);
-                    $availability = $host->probe($this->supervisor, $workspace->lease->path, $environment);
-                    if (!$availability->available()) {
-                        throw new RuntimeException('HOST_UNAVAILABLE: ' . $hostId);
-                    }
                     $candidateAfterProbe = $this->workspaces->candidateAfter($workspace);
                     if (!hash_equals($bundle->candidateRevision, $candidateAfterProbe)) {
                         throw new RuntimeException('STALE_WORKSPACE: host probe changed the isolated workspace before prompt finalization.');
@@ -524,5 +548,60 @@ final readonly class ExecutionCoordinator
         }
 
         return $result;
+    }
+
+    private function quotaHardBreakException(
+        string $roleId,
+        string $primaryHostId,
+        \voku\AgentLoopRunner\Host\HostAvailability $primaryAvailability,
+        ?string $fallbackHostId,
+        ?\voku\AgentLoopRunner\Host\HostAvailability $fallbackAvailability,
+    ): RuntimeException {
+        $usagePercent = $primaryAvailability->usageRatio() !== null
+            ? sprintf('%.1f%%', $primaryAvailability->usageRatio() * 100)
+            : '>= 95.0%';
+        $thresholdPercent = sprintf('%.1f%%', $this->config->quotaUsageThreshold * 100);
+        $resetInfo = '';
+        if ($primaryAvailability->resetAt !== null) {
+            $secondsRemaining = max(0, $primaryAvailability->resetAt - time());
+            $resetUtc = gmdate('Y-m-d H:i:s \U\T\C', $primaryAvailability->resetAt);
+            $resetInfo = sprintf(' Quota resets at %s (in ~%d minutes).', $resetUtc, (int) ceil($secondsRemaining / 60));
+        }
+
+        $lines = [];
+        $lines[] = sprintf(
+            "QUOTA_LIMIT_REACHED: Host '%s' for role '%s' has reached %s token/quota usage (threshold: %s).",
+            $primaryHostId,
+            $roleId,
+            $usagePercent,
+            $thresholdPercent,
+        );
+        $lines[] = sprintf(
+            'Execution was halted before starting to prevent the task from failing mid-execution.%s',
+            $resetInfo,
+        );
+
+        if ($fallbackHostId === null) {
+            $lines[] = sprintf("No fallback host is configured for role '%s'.", $roleId);
+            $lines[] = "To configure a fallback host, add 'role_fallbacks' or 'fallback' in .agent-loop-runner/config.json:";
+            $lines[] = sprintf("  {\n    \"role_fallbacks\": {\n      \"%s\": \"<fallback-host>\"\n    }\n  }", $roleId);
+            $lines[] = sprintf("  or under hosts:\n  {\n    \"hosts\": {\n      \"%s\": {\n        \"fallback\": \"<fallback-host>\"\n      }\n    }\n  }", $primaryHostId);
+            $lines[] = 'Supported hosts: codex, claude, opencode, agy.';
+            $lines[] = 'Alternatively, wait until the quota resets before retrying.';
+        } else {
+            $fallbackReason = $fallbackAvailability === null
+                ? 'host is unavailable'
+                : (!$fallbackAvailability->available()
+                    ? ($fallbackAvailability->failure ?? 'host is unavailable')
+                    : sprintf('usage is also near limit (%s)', $fallbackAvailability->usageRatio() !== null ? sprintf('%.1f%%', $fallbackAvailability->usageRatio() * 100) : '>= 95.0%'));
+            $lines[] = sprintf(
+                "Configured fallback host '%s' could not be used: %s.",
+                $fallbackHostId,
+                $fallbackReason,
+            );
+            $lines[] = 'Please configure an alternative available host or wait until quota resets.';
+        }
+
+        return new RuntimeException(implode("\n", $lines));
     }
 }

@@ -4,22 +4,17 @@ declare(strict_types=1);
 
 namespace voku\AgentLoopRunner\Host;
 
-final readonly class HostAvailability
+final readonly class HostCapacityReport
 {
+    /**
+     * @param list<array{label: string, remaining_ratio: float, reset_at: int|null}> $rawMetrics
+     */
     public function __construct(
-        public string $hostId,
-        public ?string $binaryPath,
-        public ?string $version,
-        public ?string $failure,
-        public ?float $remainingRatio = null,
-        public ?int $resetAt = null,
-        public ?string $capacitySummary = null,
+        public ?float $remainingRatio,
+        public ?int $resetAt,
+        public ?string $summary,
+        public array $rawMetrics = [],
     ) {
-    }
-
-    public function available(): bool
-    {
-        return $this->binaryPath !== null && $this->failure === null;
     }
 
     public function usageRatio(): ?float

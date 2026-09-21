@@ -9,6 +9,37 @@ Adapters are deliberately thin and noninteractive:
 
 Binary discovery and `--version` probes are observations. No model, effort, approval bypass, or workflow outcome is selected by an adapter. Deterministic fake adapters cover orchestration in CI; real provider smoke tests are run only when binaries and credentials are available.
 
+## Capacity probes
+
+Hosts may define an optional `resource_command` in `.agent-loop-runner/config.json`,
+for example:
+
+```json
+{
+  "hosts": {
+    "codex": {
+      "binary": "codex",
+      "resource_command": ["codex-cli-usage", "json"]
+    }
+  },
+  "execution": {
+    "quota_usage_threshold": 0.95
+  }
+}
+```
+
+The command is invoked as an argument vector with the projected environment;
+Runner does not invoke a shell. Its output is an untrusted observation. The
+capacity inspector understands remaining/used percentages, used-versus-total
+JSON values, reset timestamps or durations, and common provider usage-limit
+messages. Unknown or unparseable output does not claim a quota state.
+
+Before creating a Run worktree, Runner checks the selected host. At or above
+the threshold it uses a configured role fallback (or the primary host's
+`fallback`) if that host is available and below the threshold. Otherwise it
+fails closed with `QUOTA_LIMIT_REACHED`, explaining the reason, reset time when
+known, and how to configure a fallback.
+
 ## Host trust for mutating stages
 
 Adapters intentionally expose no permission, approval, or sandbox flag. Host trust is an
