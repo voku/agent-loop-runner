@@ -2,15 +2,6 @@
 
 ## [Unreleased]
 
-### Added
-
-- Add optional per-role model and reasoning-effort policies for Codex host execution, while keeping workflow authority and execution topology in `agent-loop`.
-- Require the released typed `agent-loop 0.20.28` execution-owner API used by the Runner integration proof.
-
-### Fixed
-
-- Refresh the CI exact-owner proof to the currently released `voku/agent-loop 0.20.28`.
-
 ## [0.1.4] - 2026-09-21
 
 ### Added
@@ -22,6 +13,18 @@
 ### Changed
 
 - Keep provider capacity and fallback decisions in Runner runtime observations without changing `agent-loop` workflow authority.
+
+## [0.1.3] - 2026-09-20
+
+### Added
+
+- Add optional per-role model and reasoning-effort policies for Codex host execution, while keeping workflow authority and execution topology in `agent-loop`.
+- Require the released typed `agent-loop 0.20.28` execution-owner API used by the Runner integration proof.
+- Keep the exact-owner CI proof aligned with the current released `voku/agent-loop 0.20.29`.
+
+### Fixed
+
+- Refresh the CI exact-owner proof to the currently released `voku/agent-loop 0.20.28`.
 
 ## [0.1.2] - 2026-09-13
 
