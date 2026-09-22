@@ -123,3 +123,135 @@ jobs:
           evidence="$RUNNER_TEMP/fresh-l1-567-evidence"
           test -f "$evidence/actor-exit-code.txt"
           test "$(cat "$evidence/actor-exit-code.txt")" -eq 0
+
+
+  actor-hosted:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+    steps:
+      - name: Check out Runner
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Check out frozen agent-loop base
+        uses: actions/checkout@v6
+        with:
+          repository: voku/agent-loop
+          ref: a664ca7f545cc83fee36e21ff8094c3cfa82fdfe
+          path: target
+          persist-credentials: false
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          extensions: posix
+          tools: composer:v2
+
+      - name: Require hosted Codex credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo 'OPENAI_API_KEY is not configured for the hosted fallback.' >&2
+            exit 78
+          fi
+          echo 'OPENAI_API_KEY is configured.'
+
+      - name: Install Codex CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://chatgpt.com/codex/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          export PATH="$HOME/.local/bin:$PATH"
+          codex --version
+
+      - name: Install Runner dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Install target dependencies
+        working-directory: target
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Verify frozen input
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = 'a664ca7f545cc83fee36e21ff8094c3cfa82fdfe'
+          test -z "$(git -C target status --porcelain=v1)"
+          test "$(sha256sum experiments/fresh-l1-567.md | awk '{print $1}')" = '285f4d8b728fdb009b0d152e92b8f06735a01f074db53f964cdde05e846fc521'
+
+      - name: Execute hosted fresh Codex actor from frozen L1 only
+        id: actor
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          evidence="$RUNNER_TEMP/fresh-l1-567-hosted-evidence"
+          mkdir -p "$evidence"
+          cp experiments/fresh-l1-567.md "$evidence/prompt.md"
+          php tools/premise-dogfood.php \
+            codex \
+            "$GITHUB_WORKSPACE/target" \
+            "$GITHUB_WORKSPACE/experiments/fresh-l1-567.md" \
+            "$evidence"
+          status=$?
+          set -e
+          printf '%s\n' "$status" > "$evidence/actor-exit-code.txt"
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Capture hosted repository evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/fresh-l1-567-hosted-evidence"
+          mkdir -p "$evidence"
+          git -C target status --porcelain=v1 > "$evidence/git-status.txt"
+          git -C target diff --name-only > "$evidence/changed-files.txt"
+          git -C target diff --binary --no-ext-diff > "$evidence/working-tree.patch"
+
+          allowed='^(src/Run/RunPolicyEvaluation.php|src/Workflow/WorkflowStatusCommand.php|src/Workflow/HostFrontDoorCommand.php|resources/make/agent-loop.mk|tests/CanonicalActionKindTest.php|tests/InitDoctorCommandTest.php)$'
+          : > "$evidence/scope-check.txt"
+          if [ -s "$evidence/changed-files.txt" ]; then
+            while IFS= read -r path; do
+              if ! grep -Eq "$allowed" <<<"$path"; then
+                printf 'OUT_OF_SCOPE %s\n' "$path" >> "$evidence/scope-check.txt"
+              fi
+            done < "$evidence/changed-files.txt"
+          fi
+
+      - name: Run hosted independent focused verification
+        if: always()
+        continue-on-error: true
+        working-directory: target
+        shell: bash
+        run: |
+          set +e
+          vendor/bin/phpunit tests/CanonicalActionKindTest.php tests/InitDoctorCommandTest.php
+          focused=$?
+          composer ci
+          ci=$?
+          set -e
+          evidence="$RUNNER_TEMP/fresh-l1-567-hosted-evidence"
+          printf 'focused_exit=%s\ncomposer_ci_exit=%s\n' "$focused" "$ci" > "$evidence/verification.txt"
+
+      - name: Upload hosted fresh-executor evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-l1-567-codex-hosted-${{ github.run_id }}
+          path: ${{ runner.temp }}/fresh-l1-567-hosted-evidence
+          if-no-files-found: error
+
+      - name: Require hosted actor process completion
+        if: always()
+        shell: bash
+        run: |
+          evidence="$RUNNER_TEMP/fresh-l1-567-hosted-evidence"
+          test -f "$evidence/actor-exit-code.txt"
+          test "$(cat "$evidence/actor-exit-code.txt")" -eq 0
