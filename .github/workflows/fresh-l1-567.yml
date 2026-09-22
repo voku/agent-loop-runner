@@ -1,0 +1,125 @@
+name: Fresh executor replay for frozen L1 567
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/fresh-l1-567.yml'
+      - 'experiments/fresh-l1-567.md'
+
+permissions:
+  contents: read
+
+jobs:
+  actor:
+    runs-on: self-hosted
+    timeout-minutes: 45
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    steps:
+      - name: Check out Runner
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Check out frozen agent-loop base
+        uses: actions/checkout@v6
+        with:
+          repository: voku/agent-loop
+          ref: a664ca7f545cc83fee36e21ff8094c3cfa82fdfe
+          path: target
+          persist-credentials: false
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          extensions: posix
+          tools: composer:v2
+
+      - name: Install Runner dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Install target dependencies
+        working-directory: target
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Verify frozen input
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C target rev-parse HEAD)" = 'a664ca7f545cc83fee36e21ff8094c3cfa82fdfe'
+          test -z "$(git -C target status --porcelain=v1)"
+          test "$(sha256sum experiments/fresh-l1-567.md | awk '{print $1}')" = '285f4d8b728fdb009b0d152e92b8f06735a01f074db53f964cdde05e846fc521'
+
+      - name: Execute fresh Codex actor from frozen L1 only
+        id: actor
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          evidence="$RUNNER_TEMP/fresh-l1-567-evidence"
+          mkdir -p "$evidence"
+          cp experiments/fresh-l1-567.md "$evidence/prompt.md"
+          php tools/premise-dogfood.php \
+            codex \
+            "$GITHUB_WORKSPACE/target" \
+            "$GITHUB_WORKSPACE/experiments/fresh-l1-567.md" \
+            "$evidence"
+          status=$?
+          set -e
+          printf '%s\n' "$status" > "$evidence/actor-exit-code.txt"
+          echo "exit_code=$status" >> "$GITHUB_OUTPUT"
+
+      - name: Capture independent repository evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/fresh-l1-567-evidence"
+          mkdir -p "$evidence"
+          git -C target status --porcelain=v1 > "$evidence/git-status.txt"
+          git -C target diff --name-only > "$evidence/changed-files.txt"
+          git -C target diff --binary --no-ext-diff > "$evidence/working-tree.patch"
+
+          allowed='^(src/Run/RunPolicyEvaluation.php|src/Workflow/WorkflowStatusCommand.php|src/Workflow/HostFrontDoorCommand.php|resources/make/agent-loop.mk|tests/CanonicalActionKindTest.php|tests/InitDoctorCommandTest.php)$'
+          if [ -s "$evidence/changed-files.txt" ]; then
+            while IFS= read -r path; do
+              if ! grep -Eq "$allowed" <<<"$path"; then
+                printf 'OUT_OF_SCOPE %s\n' "$path" >> "$evidence/scope-check.txt"
+              fi
+            done < "$evidence/changed-files.txt"
+          fi
+          test ! -s "$evidence/scope-check.txt" || true
+
+      - name: Run independent focused verification
+        if: always()
+        continue-on-error: true
+        working-directory: target
+        shell: bash
+        run: |
+          set +e
+          vendor/bin/phpunit tests/CanonicalActionKindTest.php tests/InitDoctorCommandTest.php
+          focused=$?
+          composer ci
+          ci=$?
+          set -e
+          evidence="$RUNNER_TEMP/fresh-l1-567-evidence"
+          printf 'focused_exit=%s\ncomposer_ci_exit=%s\n' "$focused" "$ci" > "$evidence/verification.txt"
+
+      - name: Upload fresh-executor evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-l1-567-codex-${{ github.run_id }}
+          path: ${{ runner.temp }}/fresh-l1-567-evidence
+          if-no-files-found: error
+
+      - name: Require actor process completion
+        if: always()
+        shell: bash
+        run: |
+          evidence="$RUNNER_TEMP/fresh-l1-567-evidence"
+          test -f "$evidence/actor-exit-code.txt"
+          test "$(cat "$evidence/actor-exit-code.txt")" -eq 0
