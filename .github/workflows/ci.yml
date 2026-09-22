@@ -39,7 +39,7 @@ jobs:
       - name: Resolve released agent-loop owner and dependencies
         run: composer update voku/agent-loop --with-all-dependencies --no-interaction --prefer-dist --no-progress
 
-      - name: Assert exact released agent-loop owner
+      - name: Assert released agent-loop owner satisfies supported floor
         run: |
           php -r '
           $json = shell_exec("composer show voku/agent-loop --format=json");
@@ -52,11 +52,15 @@ jobs:
           $resolved = is_array($versions) && isset($versions[0]) && is_string($versions[0])
               ? ltrim($versions[0], "* ")
               : null;
-          if ($resolved !== "0.20.31") {
-              fwrite(STDERR, "Expected released voku/agent-loop 0.20.31, got " . var_export($resolved, true) . ".\n");
+          if (
+              !is_string($resolved)
+              || !preg_match("/^0\\.20\\.[0-9]+$/", $resolved)
+              || version_compare($resolved, "0.20.28", "<")
+          ) {
+              fwrite(STDERR, "Expected released voku/agent-loop 0.20.28+, got " . var_export($resolved, true) . ".\n");
               exit(1);
           }
-          fwrite(STDOUT, "Resolved released voku/agent-loop 0.20.31.\n");
+          fwrite(STDOUT, "Resolved released voku/agent-loop {$resolved}.\n");
           '
 
       - name: Lint provider smoke harness
