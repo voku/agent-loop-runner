@@ -255,3 +255,23 @@ jobs:
           evidence="$RUNNER_TEMP/fresh-l1-567-hosted-evidence"
           test -f "$evidence/actor-exit-code.txt"
           test "$(cat "$evidence/actor-exit-code.txt")" -eq 0
+
+
+  credential-probe:
+    runs-on: ubuntu-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+    steps:
+      - name: Report configured provider credentials without disclosure
+        shell: bash
+        run: |
+          set -euo pipefail
+          for name in OPENAI_API_KEY ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN; do
+            if [ -n "${!name:-}" ]; then
+              printf '%s=present\n' "$name"
+            else
+              printf '%s=absent\n' "$name"
+            fi
+          done
