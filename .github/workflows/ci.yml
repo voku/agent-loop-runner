@@ -39,7 +39,7 @@ jobs:
       - name: Resolve released agent-loop owner and dependencies
         run: composer update voku/agent-loop --with-all-dependencies --no-interaction --prefer-dist --no-progress
 
-      - name: Assert released agent-loop owner satisfies supported floor
+      - name: Assert released agent-loop owner includes current compatibility proof
         run: |
           php -r '
           $json = shell_exec("composer show voku/agent-loop --format=json");
@@ -55,9 +55,9 @@ jobs:
           if (
               !is_string($resolved)
               || !preg_match("/^0\\.20\\.[0-9]+$/", $resolved)
-              || version_compare($resolved, "0.20.28", "<")
+              || version_compare($resolved, "0.20.40", "<")
           ) {
-              fwrite(STDERR, "Expected released voku/agent-loop 0.20.28+, got " . var_export($resolved, true) . ".\n");
+              fwrite(STDERR, "Expected released voku/agent-loop 0.20.40+ for the current compatibility proof, got " . var_export($resolved, true) . ".\n");
               exit(1);
           }
           fwrite(STDOUT, "Resolved released voku/agent-loop {$resolved}.\n");
