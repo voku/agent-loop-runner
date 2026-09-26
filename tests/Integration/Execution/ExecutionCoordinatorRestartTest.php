@@ -118,6 +118,31 @@ final class ExecutionCoordinatorRestartTest extends TestCase
         self::assertSame($submission, $gateway->lastSubmissionId);
     }
 
+    public function testPersistedContextIdentitySurvivesRestartWithoutSecondExecution(): void
+    {
+        $gateway = new FakeGateway($this->root, $this->base);
+        $host = new MutatingCountingHost();
+
+        try {
+            $this->coordinator($gateway, $host, new ThrowAtBoundary('after_result_persisted'))->run('TASK');
+            self::fail('Expected injected crash after result persistence.');
+        } catch (InjectedCrash) {
+        }
+
+        $persisted = $this->journal->load('TASK');
+        self::assertNotNull($persisted);
+        self::assertIsArray($persisted->stageResult);
+        $contextId = $persisted->stageResult['context_id'] ?? null;
+        self::assertIsString($contextId);
+        self::assertStringStartsWith('runner-context:sha256:', $contextId);
+        self::assertSame(1, $host->executions);
+
+        $complete = $this->coordinator($gateway, $host, new NullCoordinatorHook())->resume('TASK');
+        self::assertTrue($complete->complete());
+        self::assertSame(1, $host->executions);
+        self::assertSame($contextId, $gateway->lastContextId);
+    }
+
     public function testEnvironmentObservationDoesNotCopyAllowlistedSecretValuesIntoPromptFacts(): void
     {
         $previous = getenv('OPENAI_API_KEY');
@@ -234,6 +259,7 @@ final class FakeGateway implements ExecutionGatewayPort
     public int $artifactRegistrations = 0;
     public int $environmentPreparations = 0;
     public ?string $lastSubmissionId = null;
+    public ?string $lastContextId = null;
     public ?ExecutionEnvironmentObservation $lastEnvironmentObservation = null;
 
     public function __construct(private readonly string $root, private readonly string $base)
@@ -279,6 +305,7 @@ final class FakeGateway implements ExecutionGatewayPort
             [StageOutcome::PASS, StageOutcome::FAILED],
             'AGENT_LOOP_STAGE_RESULT ',
             "do work\n",
+            contextIdRequired: true,
         );
     }
 
@@ -313,6 +340,8 @@ final class FakeGateway implements ExecutionGatewayPort
             completionMarker: $bundle->completionMarker,
             prompt: 'environment-bound:' . $observation->digest() . "\n",
             environmentObservationDigest: $observation->digest(),
+            contextPolicy: $bundle->contextPolicy,
+            contextIdRequired: $bundle->contextIdRequired,
         );
     }
 
@@ -334,6 +363,7 @@ final class FakeGateway implements ExecutionGatewayPort
     {
         ++$this->submissions;
         $this->lastSubmissionId = $result->submissionId;
+        $this->lastContextId = $result->contextId;
         $this->complete = true;
 
         return $this->projection($result->taskId);
