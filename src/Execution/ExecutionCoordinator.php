@@ -248,6 +248,31 @@ final readonly class ExecutionCoordinator
                     if ($result->process->startedAt === '' || $result->process->finishedAt === '') {
                         throw new RuntimeException('PROCESS_FAILED: process evidence is incomplete.');
                     }
+                    $startedAttempt = $this->journal->load($attempt->taskId);
+                    if (!$startedAttempt instanceof RuntimeAttempt
+                        || $startedAttempt->status !== AttemptStatus::ProcessStarted
+                        || !$startedAttempt->sameAuthority(
+                            $attempt->runId,
+                            $attempt->contractRevision,
+                            $attempt->executionPlanDigest,
+                            $attempt->stageId,
+                            $attempt->attempt,
+                        )
+                        || !hash_equals($attempt->submissionId, $startedAttempt->submissionId)
+                        || !hash_equals($attempt->hostId, $startedAttempt->hostId)
+                    ) {
+                        throw new RuntimeException('PROCESS_FAILED: durable process start evidence is missing or stale.');
+                    }
+                    $observedPid = $startedAttempt->process['pid'] ?? null;
+                    $observedStartedAt = $startedAttempt->process['started_at'] ?? null;
+                    if (!is_int($observedPid)
+                        || !is_string($observedStartedAt)
+                        || !hash_equals($result->process->startedAt, $observedStartedAt)
+                    ) {
+                        throw new RuntimeException('PROCESS_FAILED: durable process start evidence conflicts with process result.');
+                    }
+                    $observedFingerprint = $startedAttempt->process['process_fingerprint'] ?? null;
+
                     $logEvidence = $this->logs->persist(
                         $attempt->taskId,
                         $attempt->runId,
@@ -258,12 +283,14 @@ final readonly class ExecutionCoordinator
                     );
                     $processEvidence = array_merge(
                         [
-                            'started_at' => $result->process->startedAt,
+                            'pid' => $observedPid,
+                            'started_at' => $observedStartedAt,
                             'exited_at' => $result->process->finishedAt,
                             'exit_code' => $result->process->exitCode,
                             'timed_out' => $result->process->timedOut,
                         ],
                         array_filter([
+                            'process_fingerprint' => $observedFingerprint,
                             'model' => $modelPolicy?->model,
                             'reasoning_effort' => $modelPolicy?->reasoningEffort,
                         ], static fn (mixed $value): bool => is_string($value) && $value !== ''),
@@ -454,23 +481,25 @@ final readonly class ExecutionCoordinator
             return null;
         }
 
+        $pid = $attempt->process['pid'] ?? null;
         $startedAt = $attempt->process['started_at'] ?? null;
-        if (!is_string($startedAt)) {
+        if (!is_int($pid) || !is_string($startedAt)) {
             throw new RuntimeException(
                 'PROCESS_FAILED: required context identity has no durable process start evidence.',
             );
         }
 
-        return 'runner-context:sha256:' . hash('sha256', implode("\0", [
-            $attempt->taskId,
-            $attempt->runId,
-            $attempt->executionPlanDigest,
-            $attempt->stageId,
-            (string) $attempt->attempt,
+        $identity = [
             $attempt->hostId,
-            $attempt->submissionId,
+            (string) $pid,
             $startedAt,
-        ]));
+        ];
+        $fingerprint = $attempt->process['process_fingerprint'] ?? null;
+        if (is_string($fingerprint)) {
+            $identity[] = $fingerprint;
+        }
+
+        return 'runner-context:sha256:' . hash('sha256', implode("\0", $identity));
     }
 
     private function submissionId(string $task, string $run, string $stage, int $attempt): string
