@@ -130,7 +130,7 @@ final class ProfileGateway implements ExecutionGatewayPort
     /** @var list<string> */
     public array $visited = [];
 
-    /** @var array<non-empty-string, non-empty-string> */
+    /** @var array<string, string> */
     public array $contextIds = [];
 
     /** @param list<string> $stages */
