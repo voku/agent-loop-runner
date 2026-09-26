@@ -455,7 +455,7 @@ final readonly class ExecutionCoordinator
         }
 
         $startedAt = $attempt->process['started_at'] ?? null;
-        if (!is_string($startedAt) || $startedAt === '') {
+        if (!is_string($startedAt)) {
             throw new RuntimeException(
                 'PROCESS_FAILED: required context identity has no durable process start evidence.',
             );
