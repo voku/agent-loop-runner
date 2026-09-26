@@ -248,30 +248,37 @@ final readonly class ExecutionCoordinator
                     if ($result->process->startedAt === '' || $result->process->finishedAt === '') {
                         throw new RuntimeException('PROCESS_FAILED: process evidence is incomplete.');
                     }
-                    $startedAttempt = $this->journal->load($attempt->taskId);
-                    if (!$startedAttempt instanceof RuntimeAttempt
-                        || $startedAttempt->status !== AttemptStatus::ProcessStarted
-                        || !$startedAttempt->sameAuthority(
-                            $attempt->runId,
-                            $attempt->contractRevision,
-                            $attempt->executionPlanDigest,
-                            $attempt->stageId,
-                            $attempt->attempt,
-                        )
-                        || !hash_equals($attempt->submissionId, $startedAttempt->submissionId)
-                        || !hash_equals($attempt->hostId, $startedAttempt->hostId)
-                    ) {
-                        throw new RuntimeException('PROCESS_FAILED: durable process start evidence is missing or stale.');
+                    $processIdentityEvidence = [];
+                    if ($bundle->contextIdRequired) {
+                        $startedAttempt = $this->journal->load($attempt->taskId);
+                        if (!$startedAttempt instanceof RuntimeAttempt
+                            || $startedAttempt->status !== AttemptStatus::ProcessStarted
+                            || !$startedAttempt->sameAuthority(
+                                $attempt->runId,
+                                $attempt->contractRevision,
+                                $attempt->executionPlanDigest,
+                                $attempt->stageId,
+                                $attempt->attempt,
+                            )
+                            || !hash_equals($attempt->submissionId, $startedAttempt->submissionId)
+                            || !hash_equals($attempt->hostId, $startedAttempt->hostId)
+                        ) {
+                            throw new RuntimeException('PROCESS_FAILED: durable process start evidence is missing or stale.');
+                        }
+                        $observedPid = $startedAttempt->process['pid'] ?? null;
+                        $observedStartedAt = $startedAttempt->process['started_at'] ?? null;
+                        if (!is_int($observedPid)
+                            || !is_string($observedStartedAt)
+                            || !hash_equals($result->process->startedAt, $observedStartedAt)
+                        ) {
+                            throw new RuntimeException('PROCESS_FAILED: durable process start evidence conflicts with process result.');
+                        }
+                        $processIdentityEvidence['pid'] = $observedPid;
+                        $observedFingerprint = $startedAttempt->process['process_fingerprint'] ?? null;
+                        if (is_string($observedFingerprint)) {
+                            $processIdentityEvidence['process_fingerprint'] = $observedFingerprint;
+                        }
                     }
-                    $observedPid = $startedAttempt->process['pid'] ?? null;
-                    $observedStartedAt = $startedAttempt->process['started_at'] ?? null;
-                    if (!is_int($observedPid)
-                        || !is_string($observedStartedAt)
-                        || !hash_equals($result->process->startedAt, $observedStartedAt)
-                    ) {
-                        throw new RuntimeException('PROCESS_FAILED: durable process start evidence conflicts with process result.');
-                    }
-                    $observedFingerprint = $startedAttempt->process['process_fingerprint'] ?? null;
 
                     $logEvidence = $this->logs->persist(
                         $attempt->taskId,
@@ -282,15 +289,14 @@ final readonly class ExecutionCoordinator
                         $result->process->stderr,
                     );
                     $processEvidence = array_merge(
+                        $processIdentityEvidence,
                         [
-                            'pid' => $observedPid,
-                            'started_at' => $observedStartedAt,
+                            'started_at' => $result->process->startedAt,
                             'exited_at' => $result->process->finishedAt,
                             'exit_code' => $result->process->exitCode,
                             'timed_out' => $result->process->timedOut,
                         ],
                         array_filter([
-                            'process_fingerprint' => $observedFingerprint,
                             'model' => $modelPolicy?->model,
                             'reasoning_effort' => $modelPolicy?->reasoningEffort,
                         ], static fn (mixed $value): bool => is_string($value) && $value !== ''),
