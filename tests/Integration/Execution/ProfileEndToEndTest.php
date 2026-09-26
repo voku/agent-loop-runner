@@ -7,6 +7,7 @@ namespace voku\AgentLoopRunner\Tests\Integration\Execution;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use voku\AgentLoop\Execution\ExecutionContextPolicy;
 use voku\AgentLoop\Execution\ExecutionEnvironmentObservation;
 use voku\AgentLoop\Execution\ExecutionProfileName;
 use voku\AgentLoop\Execution\ExecutionProjection;
@@ -92,6 +93,17 @@ final class ProfileEndToEndTest extends TestCase
         self::assertSame(count($stages) - 1, $gateway->environmentPreparations);
         self::assertSame(1, $gateway->deterministicExecutions);
         self::assertSame($stages, $gateway->visited);
+
+        self::assertArrayHasKey('builder', $gateway->contextIds);
+        if (in_array('reviewer', $stages, true)) {
+            self::assertArrayHasKey('reviewer', $gateway->contextIds);
+            self::assertNotSame($gateway->contextIds['builder'], $gateway->contextIds['reviewer']);
+        }
+        if (in_array('blindspot-review', $stages, true)) {
+            self::assertArrayHasKey('blindspot-review', $gateway->contextIds);
+            self::assertNotSame($gateway->contextIds['builder'], $gateway->contextIds['blindspot-review']);
+        }
+        self::assertCount(count($gateway->contextIds), array_unique($gateway->contextIds));
     }
 
     /** @param list<string> $args */
@@ -118,6 +130,9 @@ final class ProfileGateway implements ExecutionGatewayPort
     /** @var list<string> */
     public array $visited = [];
 
+    /** @var array<non-empty-string, non-empty-string> */
+    public array $contextIds = [];
+
     /** @param list<string> $stages */
     public function __construct(
         private readonly string $root,
@@ -135,6 +150,12 @@ final class ProfileGateway implements ExecutionGatewayPort
     public function prepareStage(string $taskId, string $stageId): StageExecutionBundle
     {
         $deterministic = $stageId === 'verify';
+        $freshContext = in_array(
+            $stageId,
+            ['reviewer', 'correctness-review', 'architecture-review', 'independent-verification', 'blindspot-review'],
+            true,
+        );
+        $contextIdRequired = !$deterministic && $stageId !== 'investigator';
 
         return new StageExecutionBundle(
             $taskId,
@@ -157,6 +178,10 @@ final class ProfileGateway implements ExecutionGatewayPort
             [StageOutcome::PASS, StageOutcome::FAILED],
             'AGENT_LOOP_STAGE_RESULT ',
             'work',
+            contextPolicy: $freshContext
+                ? ExecutionContextPolicy::FRESH_REQUIRED
+                : ExecutionContextPolicy::REUSE_ALLOWED,
+            contextIdRequired: $contextIdRequired,
         );
     }
 
@@ -190,6 +215,8 @@ final class ProfileGateway implements ExecutionGatewayPort
             completionMarker: $bundle->completionMarker,
             prompt: $bundle->prompt . "\nenvironment=" . $observation->digest(),
             environmentObservationDigest: $observation->digest(),
+            contextPolicy: $bundle->contextPolicy,
+            contextIdRequired: $bundle->contextIdRequired,
         );
     }
 
@@ -206,6 +233,9 @@ final class ProfileGateway implements ExecutionGatewayPort
     public function submitStageResult(StageResult $result): ExecutionProjection
     {
         $this->visited[] = $result->stageId;
+        if ($result->contextId !== null) {
+            $this->contextIds[$result->stageId] = $result->contextId;
+        }
         ++$this->index;
 
         return $this->projection($result->taskId);
@@ -241,6 +271,8 @@ final class ProfileHost implements HostAdapter
     public function execute(HostExecutionRequest $request, ProcessSupervisor $processSupervisor): HostExecutionResult
     {
         ++$this->executions;
+        $startedAt = sprintf('2026-01-01T00:00:%02d+00:00', $this->executions);
+        $finishedAt = sprintf('2026-01-01T00:01:%02d+00:00', $this->executions);
 
         return new HostExecutionResult(
             'fake',
@@ -249,8 +281,8 @@ final class ProfileHost implements HostAdapter
                 'AGENT_LOOP_STAGE_RESULT {"outcome":"pass","summary":"ok","artifact_references":[],"validation_references":[]}' . "\n",
                 '',
                 false,
-                'start',
-                'finish',
+                $startedAt,
+                $finishedAt,
             ),
         );
     }
