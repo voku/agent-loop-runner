@@ -9,6 +9,7 @@ use PHPUnit\Framework\TestCase;
 use voku\AgentRecallCompiler\CompileRequest;
 use voku\AgentRecallCompiler\CompileResult;
 use voku\AgentLoop\Execution\ExecutionGateway;
+use voku\AgentLoop\Execution\ExecutionStateStore;
 use voku\AgentLoop\Workflow\ExecutionContractStore;
 use voku\AgentLoop\Workflow\HostFrontDoorCommand;
 use voku\AgentLoop\Workflow\WorkflowApproveCommand;
@@ -20,6 +21,7 @@ use voku\AgentLoopRunner\Execution\AgentLoopExecutionGateway;
 use voku\AgentLoopRunner\Execution\CompletionEnvelopeParser;
 use voku\AgentLoopRunner\Execution\ExecutionCoordinator;
 use voku\AgentLoopRunner\Git\GitCommand;
+use voku\AgentLoopRunner\Host\CodexHostAdapter;
 use voku\AgentLoopRunner\Host\HostAdapter;
 use voku\AgentLoopRunner\Host\HostAvailability;
 use voku\AgentLoopRunner\Host\HostExecutionRequest;
@@ -119,6 +121,97 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
         self::assertSame($this->originalSource, file_get_contents($this->root . '/src/Foo.php'), 'Runner work must not mutate the user checkout.');
         self::assertSame('', $this->git(['diff', '--cached', '--name-only']), 'Runner work must not mutate the user index.');
         self::assertSame('', $this->git(['status', '--porcelain', '--untracked-files=no']), 'Tracked user checkout state must remain clean.');
+    }
+
+    public function testRealCodexAdapterProducesFreshProcessContextEvidenceWithoutCredentials(): void
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            self::markTestSkipped('The local Codex fixture uses a POSIX shell executable.');
+        }
+
+        $taskId = 'TASK-CODEX-CONTEXT';
+        ob_start();
+        self::assertSame(0, (new WorkflowPlanCommand($this->root))->run([
+            $taskId,
+            '--by', 'owner',
+            '--file', 'src/Foo.php',
+            '--goal', 'Prove fresh context through the real Codex process adapter.',
+            '--validation', 'composer ci',
+            '--base-commit', $this->base,
+        ]));
+        self::assertSame(0, (new WorkflowApproveCommand($this->root))->run([$taskId, '--by', 'owner']));
+        self::assertSame(0, (new WorkflowExecutionProfileCommand($this->root))->run([
+            $taskId,
+            '--profile', 'surgical',
+            '--by', 'owner',
+        ]));
+        ob_end_clean();
+
+        ob_start();
+        $exit = (new HostFrontDoorCommand(
+            $this->root,
+            function (CompileRequest $request) use ($taskId): CompileResult {
+                $directory = $request->outputDirectory;
+                mkdir($directory, 0o775, true);
+                file_put_contents($directory . '/meta.json', json_encode([
+                    'schema_version' => '1.0',
+                    'task_id' => $taskId,
+                    'compilation_id' => 'real-codex-process-fixture',
+                    'selected_guidance' => [],
+                    'selected_constraints' => [],
+                    'output_hashes' => [],
+                ], JSON_THROW_ON_ERROR));
+                file_put_contents($directory . '/system.md', "# Recall\nStay governed.\n");
+
+                return new CompileResult($directory, 'real-codex-process-fixture', str_repeat('a', 64));
+            },
+        ))->run('enter', [$taskId, '--format=json']);
+        ob_end_clean();
+        self::assertSame(0, $exit);
+
+        $fakeCodex = $this->fakeCodexBinary();
+        $config = new RunnerConfig(
+            ['codex' => ['binary' => $fakeCodex]],
+            [
+                'investigator' => 'codex',
+                'builder' => 'codex',
+                'reviewer' => 'codex',
+            ],
+            60,
+            ['PATH'],
+        );
+        $host = new CodexHostAdapter($fakeCodex);
+
+        $projection = $this->coordinatorWithHost($host, $config)->run($taskId);
+        self::assertTrue($projection->complete());
+
+        $state = (new ExecutionStateStore($this->root))->find($taskId);
+        self::assertNotNull($state);
+        $contexts = [];
+        foreach ($state->history as $accepted) {
+            if ($accepted->result->contextId !== null) {
+                $contexts[$accepted->result->stageId] = $accepted->result->contextId;
+            }
+        }
+
+        self::assertArrayHasKey('build', $contexts);
+        self::assertArrayHasKey('review', $contexts);
+        self::assertStringStartsWith('runner-context:sha256:', $contexts['build']);
+        self::assertStringStartsWith('runner-context:sha256:', $contexts['review']);
+        self::assertNotSame($contexts['build'], $contexts['review']);
+
+        $runtime = (new RuntimeJournal(new RunnerLayout($this->root)))->load($taskId);
+        self::assertNotNull($runtime);
+        self::assertSame('review', $runtime->stageId);
+        self::assertIsInt($runtime->process['pid'] ?? null);
+        self::assertIsString($runtime->process['started_at'] ?? null);
+        if (PHP_OS_FAMILY === 'Linux') {
+            self::assertIsString($runtime->process['process_fingerprint'] ?? null);
+        }
+
+        self::assertSame($this->originalSource, file_get_contents($this->root . '/src/Foo.php'));
+        self::assertSame('', $this->git(['diff', '--cached', '--name-only']));
+        self::assertSame('', $this->git(['status', '--porcelain', '--untracked-files=no']));
     }
 
     public function testL2ExecutionContractReachesHostInsteadOfConstructionBriefing(): void
@@ -224,6 +317,75 @@ MD);
             self::assertStringNotContainsString('L2 Operational Prompt Construction', $prompt);
             self::assertStringNotContainsString('Create a project-specific L1 execution contract.', $prompt);
         }
+    }
+
+    private function coordinatorWithHost(HostAdapter $host, RunnerConfig $config): ExecutionCoordinator
+    {
+        $layout = new RunnerLayout($this->root);
+        $supervisor = new ForegroundProcessSupervisor();
+        $git = new GitCommand($supervisor, ['PATH' => (string) getenv('PATH')]);
+
+        return new ExecutionCoordinator(
+            new AgentLoopExecutionGateway(new ExecutionGateway($this->root)),
+            new RuntimeJournal($layout),
+            new RunWorkspaceManager($layout, new GitWorktreeService($git), new WorkspaceCandidateHasher($git)),
+            new CompletionEnvelopeParser(),
+            $config,
+            ['codex' => $host],
+            $supervisor,
+            new DiagnosticLogStore($layout),
+        );
+    }
+
+    /** @return non-empty-string */
+    private function fakeCodexBinary(): string
+    {
+        $directory = $this->root . '/fake-bin';
+        if (!is_dir($directory)) {
+            self::assertTrue(mkdir($directory, 0o775, true));
+        }
+
+        $path = $directory . '/codex';
+        $script = <<<'BASH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--version" ]]; then
+    printf '%s\n' 'codex-fake 1.0.0'
+    exit 0
+fi
+
+if [[ "${1:-}" != "exec" || "${2:-}" != "--ephemeral" || "${3:-}" != "-" || "$#" -ne 3 ]]; then
+    printf '%s\n' 'unexpected codex invocation' >&2
+    exit 64
+fi
+
+prompt="$(cat)"
+
+if grep -Fq 'Role: investigator' <<<"$prompt"; then
+    printf '%s\n' 'AGENT_LOOP_STAGE_RESULT {"outcome":"completed","summary":"investigated","artifact_references":[],"validation_references":[]}'
+    exit 0
+fi
+
+if grep -Fq 'Role: builder' <<<"$prompt"; then
+    printf '%s\n' '<?php final class Foo { public const string BUILT = "real-process"; }' > src/Foo.php
+    printf '%s\n' 'AGENT_LOOP_STAGE_RESULT {"outcome":"completed","summary":"built","artifact_references":["src/Foo.php"],"validation_references":[]}'
+    exit 0
+fi
+
+if grep -Fq 'Role: reviewer' <<<"$prompt"; then
+    printf '%s\n' 'AGENT_LOOP_STAGE_RESULT {"outcome":"pass","summary":"reviewed","artifact_references":[],"validation_references":[]}'
+    exit 0
+fi
+
+printf '%s\n' 'unknown role in prompt' >&2
+exit 65
+BASH;
+
+        self::assertNotFalse(file_put_contents($path, $script));
+        self::assertTrue(chmod($path, 0o755));
+
+        return $path;
     }
 
     private function coordinator(OutcomeHost $host): ExecutionCoordinator
