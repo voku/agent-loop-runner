@@ -106,6 +106,35 @@ final class ProfileEndToEndTest extends TestCase
         self::assertCount(count($gateway->contextIds), array_unique($gateway->contextIds));
     }
 
+    public function testContextIdentityTracksObservedProcessRatherThanStageIdentity(): void
+    {
+        $stages = ['investigator', 'builder', 'reviewer', 'verify'];
+        $gateway = new ProfileGateway($this->root, $this->base, ExecutionProfileName::SURGICAL, $stages);
+        $host = new ProfileHost(reuseProcessIdentity: true);
+        $supervisor = new ForegroundProcessSupervisor();
+        $layout = new RunnerLayout($this->root);
+        $git = new GitCommand($supervisor, ['PATH' => (string) getenv('PATH')]);
+        $coordinator = new ExecutionCoordinator(
+            $gateway,
+            new RuntimeJournal($layout),
+            new RunWorkspaceManager($layout, new GitWorktreeService($git), new WorkspaceCandidateHasher($git)),
+            new CompletionEnvelopeParser(),
+            RunnerConfig::defaults(),
+            ['codex' => $host, 'claude' => $host],
+            $supervisor,
+            new DiagnosticLogStore($layout),
+        );
+
+        self::assertTrue($coordinator->run('TASK')->complete());
+        self::assertArrayHasKey('builder', $gateway->contextIds);
+        self::assertArrayHasKey('reviewer', $gateway->contextIds);
+        self::assertSame(
+            $gateway->contextIds['builder'],
+            $gateway->contextIds['reviewer'],
+            'Reusing the same observed process identity must not produce a fresh-context attestation.',
+        );
+    }
+
     /** @param list<string> $args */
     private function git(array $args): string
     {
@@ -256,6 +285,10 @@ final class ProfileHost implements HostAdapter
     public int $executions = 0;
     public int $probes = 0;
 
+    public function __construct(private readonly bool $reuseProcessIdentity = false)
+    {
+    }
+
     public function id(): string
     {
         return 'fake';
@@ -271,8 +304,10 @@ final class ProfileHost implements HostAdapter
     public function execute(HostExecutionRequest $request, ProcessSupervisor $processSupervisor): HostExecutionResult
     {
         ++$this->executions;
-        $startedAt = sprintf('2026-01-01T00:00:%02d+00:00', $this->executions);
-        $finishedAt = sprintf('2026-01-01T00:01:%02d+00:00', $this->executions);
+        $startedAt = '2026-01-01T00:00:00+00:00';
+        $finishedAt = '2026-01-01T00:01:00+00:00';
+        $pid = $this->reuseProcessIdentity ? 20_000 : 20_000 + $this->executions;
+        $request->observer->started($pid, $startedAt);
 
         return new HostExecutionResult(
             'fake',
