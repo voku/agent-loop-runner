@@ -1,0 +1,50 @@
+name: Refresh lock for #36
+
+on:
+  push:
+    branches:
+      - feat/36-process-context-attestation
+    paths:
+      - '.github/workflows/refresh-lock-for-36.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: feat/36-process-context-attestation
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer:v2
+
+      - name: Resolve released owner graph
+        run: composer update voku/agent-loop --with-all-dependencies --no-interaction --prefer-dist --no-progress --no-audit
+
+      - name: Verify lock
+        run: composer validate --strict
+
+      - name: Commit only composer.lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$(git status --short --untracked-files=no -- . ':(exclude)composer.lock')" || {
+            echo "Composer changed files other than composer.lock." >&2
+            git status --short
+            exit 1
+          }
+          git diff --exit-code -- composer.json
+          git add composer.lock
+          git diff --cached --quiet && exit 0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'chore(deps): refresh agent-loop 0.20.45 lock'
+          git push origin HEAD:feat/36-process-context-attestation
