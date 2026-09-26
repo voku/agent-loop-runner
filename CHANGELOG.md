@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-26
+
+### Added
+
+- Attest agent-loop fresh-context requirements with a bounded opaque `context_id` derived from the observed process PID, start time, and optional `/proc` process fingerprint.
+- Preserve context identity across normal restart reconciliation and prove that distinct process attempts yield distinct identities while deliberately reused process identity yields the same identity.
+- Require released `voku/agent-loop ^0.20.45` and refresh the locked coordinated dependency graph.
+
+### Changed
+
+- Preserve durable `ProcessStarted` identity evidence for stages that declare `context_id_required`, while leaving unrelated stages on the existing HostAdapter contract.
+- Exclude task, Run, stage, role, host label, attempt, and submission identity from the context hash so workflow metadata cannot manufacture a false fresh-context claim.
+- Keep the runtime claim deliberately process-level; it does not assert absence of hidden provider/account-global state.
+
+### Validation
+
+- PHP 8.3, 8.4, and 8.5: PHPUnit and PHPStan green.
+- Installed-consumer proof green on PHP 8.3 and 8.5, including released dependency resolution, generated-lock replay, and installed Runner doctor.
+- Restart, distinct-process, and same-process reuse proofs cover the context-lineage semantics.
+
+
 ## [0.1.4] - 2026-09-21
 
 ### Added
