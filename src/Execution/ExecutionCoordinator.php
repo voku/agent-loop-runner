@@ -406,6 +406,7 @@ final readonly class ExecutionCoordinator
                     $artifactReferences,
                     [],
                     $envelope->summary,
+                    $this->contextId($bundle, $attempt),
                 );
                 $persisted = new RuntimeAttempt(
                     $attempt->taskId,
@@ -445,6 +446,31 @@ final readonly class ExecutionCoordinator
         if (!is_string($configuredRoot) || !is_string($bundleRoot) || $configuredRoot !== $bundleRoot) {
             throw new RuntimeException('STALE_WORKSPACE: bundle repository root conflicts with configured project root.');
         }
+    }
+
+    private function contextId(StageExecutionBundle $bundle, RuntimeAttempt $attempt): ?string
+    {
+        if (!$bundle->contextIdRequired) {
+            return null;
+        }
+
+        $startedAt = $attempt->process['started_at'] ?? null;
+        if (!is_string($startedAt) || $startedAt === '') {
+            throw new RuntimeException(
+                'PROCESS_FAILED: required context identity has no durable process start evidence.',
+            );
+        }
+
+        return 'runner-context:sha256:' . hash('sha256', implode("\0", [
+            $attempt->taskId,
+            $attempt->runId,
+            $attempt->executionPlanDigest,
+            $attempt->stageId,
+            (string) $attempt->attempt,
+            $attempt->hostId,
+            $attempt->submissionId,
+            $startedAt,
+        ]));
     }
 
     private function submissionId(string $task, string $run, string $stage, int $attempt): string
@@ -503,6 +529,10 @@ final readonly class ExecutionCoordinator
         }
         $artifacts = $this->strings($data['artifact_references']);
         $validation = $this->strings($data['validation_references']);
+        $contextId = $data['context_id'] ?? null;
+        if ($contextId !== null && (!is_string($contextId) || $contextId === '')) {
+            throw new RuntimeException('INVALID_STAGE_RESULT: persisted context id is invalid.');
+        }
 
         return new StageResult(
             $data['submission_id'],
@@ -517,6 +547,7 @@ final readonly class ExecutionCoordinator
             $artifacts,
             $validation,
             $data['summary'],
+            $contextId,
         );
     }
 
