@@ -29,7 +29,7 @@ agent-loop (authoritative governance root)
 | --- | --- |
 | PHP | `^8.3` |
 | Git | `^2.25` (worktrees supported) |
-| `voku/agent-loop` | `^0.20.28` |
+| `voku/agent-loop` | `^0.20.45` |
 | Coding Host(s) | At least one installed CLI: Codex, Claude Code, OpenCode, or Antigravity (`agy`) |
 
 ## Installation
@@ -185,6 +185,7 @@ Binary paths can be configured explicitly. Model choice, reasoning/effort settin
 ## Safety invariants
 
 - process exit `0` is only a runtime observation;
+- when Loop requires context lineage, Runner derives one opaque `context_id` from the observed process PID + start time + optional `/proc` fingerprint; it deliberately excludes stage/role/submission identity and proves Runner process-level separation only, not absence of hidden provider/account-global state;
 - stdout/stderr never becomes workflow truth;
 - only `agent-loop` accepts a `StageResult` transition;
 - one governed Run gets one isolated Git worktree;

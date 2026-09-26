@@ -285,6 +285,8 @@ final class OutcomeHost implements HostAdapter
     {
         ++$this->executions;
         $this->prompts[] = $request->prompt;
+        $startedAt = '2026-01-01T00:00:00+00:00';
+        $request->observer->started(30_000 + $this->executions, $startedAt);
         if (str_contains($request->prompt, '# Current bounded execution environment')
             && str_contains($request->prompt, 'Observation digest: sha256:')) {
             ++$this->environmentBoundExecutions;
@@ -309,7 +311,7 @@ final class OutcomeHost implements HostAdapter
 
         return new HostExecutionResult(
             'fake',
-            new ProcessResult(0, $stdout, '', false, 'start', 'finish'),
+            new ProcessResult(0, $stdout, '', false, $startedAt, '2026-01-01T00:01:00+00:00'),
         );
     }
 }

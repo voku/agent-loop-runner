@@ -248,6 +248,38 @@ final readonly class ExecutionCoordinator
                     if ($result->process->startedAt === '' || $result->process->finishedAt === '') {
                         throw new RuntimeException('PROCESS_FAILED: process evidence is incomplete.');
                     }
+                    $processIdentityEvidence = [];
+                    if ($bundle->contextIdRequired) {
+                        $startedAttempt = $this->journal->load($attempt->taskId);
+                        if (!$startedAttempt instanceof RuntimeAttempt
+                            || $startedAttempt->status !== AttemptStatus::ProcessStarted
+                            || !$startedAttempt->sameAuthority(
+                                $attempt->runId,
+                                $attempt->contractRevision,
+                                $attempt->executionPlanDigest,
+                                $attempt->stageId,
+                                $attempt->attempt,
+                            )
+                            || !hash_equals($attempt->submissionId, $startedAttempt->submissionId)
+                            || !hash_equals($attempt->hostId, $startedAttempt->hostId)
+                        ) {
+                            throw new RuntimeException('PROCESS_FAILED: durable process start evidence is missing or stale.');
+                        }
+                        $observedPid = $startedAttempt->process['pid'] ?? null;
+                        $observedStartedAt = $startedAttempt->process['started_at'] ?? null;
+                        if (!is_int($observedPid)
+                            || !is_string($observedStartedAt)
+                            || !hash_equals($result->process->startedAt, $observedStartedAt)
+                        ) {
+                            throw new RuntimeException('PROCESS_FAILED: durable process start evidence conflicts with process result.');
+                        }
+                        $processIdentityEvidence['pid'] = $observedPid;
+                        $observedFingerprint = $startedAttempt->process['process_fingerprint'] ?? null;
+                        if (is_string($observedFingerprint)) {
+                            $processIdentityEvidence['process_fingerprint'] = $observedFingerprint;
+                        }
+                    }
+
                     $logEvidence = $this->logs->persist(
                         $attempt->taskId,
                         $attempt->runId,
@@ -257,6 +289,7 @@ final readonly class ExecutionCoordinator
                         $result->process->stderr,
                     );
                     $processEvidence = array_merge(
+                        $processIdentityEvidence,
                         [
                             'started_at' => $result->process->startedAt,
                             'exited_at' => $result->process->finishedAt,
@@ -406,6 +439,7 @@ final readonly class ExecutionCoordinator
                     $artifactReferences,
                     [],
                     $envelope->summary,
+                    $this->contextId($bundle, $attempt),
                 );
                 $persisted = new RuntimeAttempt(
                     $attempt->taskId,
@@ -445,6 +479,32 @@ final readonly class ExecutionCoordinator
         if (!is_string($configuredRoot) || !is_string($bundleRoot) || $configuredRoot !== $bundleRoot) {
             throw new RuntimeException('STALE_WORKSPACE: bundle repository root conflicts with configured project root.');
         }
+    }
+
+    private function contextId(StageExecutionBundle $bundle, RuntimeAttempt $attempt): ?string
+    {
+        if (!$bundle->contextIdRequired) {
+            return null;
+        }
+
+        $pid = $attempt->process['pid'] ?? null;
+        $startedAt = $attempt->process['started_at'] ?? null;
+        if (!is_int($pid) || !is_string($startedAt)) {
+            throw new RuntimeException(
+                'PROCESS_FAILED: required context identity has no durable process start evidence.',
+            );
+        }
+
+        $identity = [
+            (string) $pid,
+            $startedAt,
+        ];
+        $fingerprint = $attempt->process['process_fingerprint'] ?? null;
+        if (is_string($fingerprint)) {
+            $identity[] = $fingerprint;
+        }
+
+        return 'runner-context:sha256:' . hash('sha256', implode("\0", $identity));
     }
 
     private function submissionId(string $task, string $run, string $stage, int $attempt): string
@@ -503,6 +563,10 @@ final readonly class ExecutionCoordinator
         }
         $artifacts = $this->strings($data['artifact_references']);
         $validation = $this->strings($data['validation_references']);
+        $contextId = $data['context_id'] ?? null;
+        if ($contextId !== null && (!is_string($contextId) || $contextId === '')) {
+            throw new RuntimeException('INVALID_STAGE_RESULT: persisted context id is invalid.');
+        }
 
         return new StageResult(
             $data['submission_id'],
@@ -517,6 +581,7 @@ final readonly class ExecutionCoordinator
             $artifacts,
             $validation,
             $data['summary'],
+            $contextId,
         );
     }
 

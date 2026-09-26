@@ -7,6 +7,7 @@ namespace voku\AgentLoopRunner\Tests\Integration\Execution;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use voku\AgentLoop\Execution\ExecutionContextPolicy;
 use voku\AgentLoop\Execution\ExecutionEnvironmentObservation;
 use voku\AgentLoop\Execution\ExecutionProfileName;
 use voku\AgentLoop\Execution\ExecutionProjection;
@@ -92,6 +93,46 @@ final class ProfileEndToEndTest extends TestCase
         self::assertSame(count($stages) - 1, $gateway->environmentPreparations);
         self::assertSame(1, $gateway->deterministicExecutions);
         self::assertSame($stages, $gateway->visited);
+
+        self::assertArrayHasKey('builder', $gateway->contextIds);
+        if (in_array('reviewer', $stages, true)) {
+            self::assertArrayHasKey('reviewer', $gateway->contextIds);
+            self::assertNotSame($gateway->contextIds['builder'], $gateway->contextIds['reviewer']);
+        }
+        if (in_array('blindspot-review', $stages, true)) {
+            self::assertArrayHasKey('blindspot-review', $gateway->contextIds);
+            self::assertNotSame($gateway->contextIds['builder'], $gateway->contextIds['blindspot-review']);
+        }
+        self::assertCount(count($gateway->contextIds), array_unique($gateway->contextIds));
+    }
+
+    public function testContextIdentityTracksObservedProcessRatherThanStageIdentity(): void
+    {
+        $stages = ['investigator', 'builder', 'reviewer', 'verify'];
+        $gateway = new ProfileGateway($this->root, $this->base, ExecutionProfileName::SURGICAL, $stages);
+        $host = new ProfileHost(reuseProcessIdentity: true);
+        $supervisor = new ForegroundProcessSupervisor();
+        $layout = new RunnerLayout($this->root);
+        $git = new GitCommand($supervisor, ['PATH' => (string) getenv('PATH')]);
+        $coordinator = new ExecutionCoordinator(
+            $gateway,
+            new RuntimeJournal($layout),
+            new RunWorkspaceManager($layout, new GitWorktreeService($git), new WorkspaceCandidateHasher($git)),
+            new CompletionEnvelopeParser(),
+            RunnerConfig::defaults(),
+            ['codex' => $host, 'claude' => $host],
+            $supervisor,
+            new DiagnosticLogStore($layout),
+        );
+
+        self::assertTrue($coordinator->run('TASK')->complete());
+        self::assertArrayHasKey('builder', $gateway->contextIds);
+        self::assertArrayHasKey('reviewer', $gateway->contextIds);
+        self::assertSame(
+            $gateway->contextIds['builder'],
+            $gateway->contextIds['reviewer'],
+            'Reusing the same observed process identity must not produce a fresh-context attestation.',
+        );
     }
 
     /** @param list<string> $args */
@@ -118,6 +159,9 @@ final class ProfileGateway implements ExecutionGatewayPort
     /** @var list<string> */
     public array $visited = [];
 
+    /** @var array<string, string> */
+    public array $contextIds = [];
+
     /** @param list<string> $stages */
     public function __construct(
         private readonly string $root,
@@ -135,6 +179,12 @@ final class ProfileGateway implements ExecutionGatewayPort
     public function prepareStage(string $taskId, string $stageId): StageExecutionBundle
     {
         $deterministic = $stageId === 'verify';
+        $freshContext = in_array(
+            $stageId,
+            ['reviewer', 'correctness-review', 'architecture-review', 'independent-verification', 'blindspot-review'],
+            true,
+        );
+        $contextIdRequired = !$deterministic && $stageId !== 'investigator';
 
         return new StageExecutionBundle(
             $taskId,
@@ -157,6 +207,10 @@ final class ProfileGateway implements ExecutionGatewayPort
             [StageOutcome::PASS, StageOutcome::FAILED],
             'AGENT_LOOP_STAGE_RESULT ',
             'work',
+            contextPolicy: $freshContext
+                ? ExecutionContextPolicy::FRESH_REQUIRED
+                : ExecutionContextPolicy::REUSE_ALLOWED,
+            contextIdRequired: $contextIdRequired,
         );
     }
 
@@ -190,6 +244,8 @@ final class ProfileGateway implements ExecutionGatewayPort
             completionMarker: $bundle->completionMarker,
             prompt: $bundle->prompt . "\nenvironment=" . $observation->digest(),
             environmentObservationDigest: $observation->digest(),
+            contextPolicy: $bundle->contextPolicy,
+            contextIdRequired: $bundle->contextIdRequired,
         );
     }
 
@@ -206,6 +262,9 @@ final class ProfileGateway implements ExecutionGatewayPort
     public function submitStageResult(StageResult $result): ExecutionProjection
     {
         $this->visited[] = $result->stageId;
+        if ($result->contextId !== null) {
+            $this->contextIds[$result->stageId] = $result->contextId;
+        }
         ++$this->index;
 
         return $this->projection($result->taskId);
@@ -226,6 +285,10 @@ final class ProfileHost implements HostAdapter
     public int $executions = 0;
     public int $probes = 0;
 
+    public function __construct(private readonly bool $reuseProcessIdentity = false)
+    {
+    }
+
     public function id(): string
     {
         return 'fake';
@@ -241,6 +304,10 @@ final class ProfileHost implements HostAdapter
     public function execute(HostExecutionRequest $request, ProcessSupervisor $processSupervisor): HostExecutionResult
     {
         ++$this->executions;
+        $startedAt = '2026-01-01T00:00:00+00:00';
+        $finishedAt = '2026-01-01T00:01:00+00:00';
+        $pid = $this->reuseProcessIdentity ? 20_000 : 20_000 + $this->executions;
+        $request->observer->started($pid, $startedAt);
 
         return new HostExecutionResult(
             'fake',
@@ -249,8 +316,8 @@ final class ProfileHost implements HostAdapter
                 'AGENT_LOOP_STAGE_RESULT {"outcome":"pass","summary":"ok","artifact_references":[],"validation_references":[]}' . "\n",
                 '',
                 false,
-                'start',
-                'finish',
+                $startedAt,
+                $finishedAt,
             ),
         );
     }

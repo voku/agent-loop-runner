@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "3a582c03d5327b4f00ed6b9b3dfdf60c",
+    "content-hash": "c1409619ffbdb87265f71d7eceac78e5",
     "packages": [
         {
             "name": "doctrine/deprecations",
@@ -1034,16 +1034,16 @@
         },
         {
             "name": "voku/agent-learning",
-            "version": "0.18.21",
+            "version": "0.18.26",
             "source": {
                 "type": "git",
                 "url": "https://github.com/voku/agent-learning.git",
-                "reference": "edc5396d056bcae72c0c24f1b9030b9addac4a4f"
+                "reference": "6572ed5f35fdcc844ed7429ad2d8ae5d8e8f34df"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/voku/agent-learning/zipball/edc5396d056bcae72c0c24f1b9030b9addac4a4f",
-                "reference": "edc5396d056bcae72c0c24f1b9030b9addac4a4f",
+                "url": "https://api.github.com/repos/voku/agent-learning/zipball/6572ed5f35fdcc844ed7429ad2d8ae5d8e8f34df",
+                "reference": "6572ed5f35fdcc844ed7429ad2d8ae5d8e8f34df",
                 "shasum": ""
             },
             "require": {
@@ -1098,29 +1098,29 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-09-19T19:19:54+00:00"
+            "time": "2026-09-24T18:38:18+00:00"
         },
         {
             "name": "voku/agent-loop",
-            "version": "0.20.29",
+            "version": "0.20.45",
             "source": {
                 "type": "git",
                 "url": "https://github.com/voku/agent-loop.git",
-                "reference": "e6849b6709256ba2038a0457f7f72c4bad8262ec"
+                "reference": "c7bfd10cc0a996988eb3c615a604cbf4f4fe27a5"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/voku/agent-loop/zipball/e6849b6709256ba2038a0457f7f72c4bad8262ec",
-                "reference": "e6849b6709256ba2038a0457f7f72c4bad8262ec",
+                "url": "https://api.github.com/repos/voku/agent-loop/zipball/c7bfd10cc0a996988eb3c615a604cbf4f4fe27a5",
+                "reference": "c7bfd10cc0a996988eb3c615a604cbf4f4fe27a5",
                 "shasum": ""
             },
             "require": {
                 "helgesverre/toon": "^3.1",
                 "php": "^8.3",
                 "voku/agent-kanban": "^0.4.4",
-                "voku/agent-learning": "^0.18.21",
+                "voku/agent-learning": "^0.18.25",
                 "voku/agent-map": "^0.18.0",
-                "voku/agent-recall-compiler": "^0.22.0",
+                "voku/agent-recall-compiler": "^0.25.0",
                 "voku/agent-session": "^0.7.1",
                 "voku/portable-utf8": "^6.1"
             },
@@ -1180,20 +1180,20 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-09-20T18:53:22+00:00"
+            "time": "2026-09-26T06:06:38+00:00"
         },
         {
             "name": "voku/agent-map",
-            "version": "0.18.0",
+            "version": "0.18.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/voku/agent-map.git",
-                "reference": "7b322b721fca9d72c7b9c1beff34fe0b282cc93a"
+                "reference": "f236dbb300ed27471a7d5b2551b20e90d231996e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/voku/agent-map/zipball/7b322b721fca9d72c7b9c1beff34fe0b282cc93a",
-                "reference": "7b322b721fca9d72c7b9c1beff34fe0b282cc93a",
+                "url": "https://api.github.com/repos/voku/agent-map/zipball/f236dbb300ed27471a7d5b2551b20e90d231996e",
+                "reference": "f236dbb300ed27471a7d5b2551b20e90d231996e",
                 "shasum": ""
             },
             "require": {
@@ -1255,20 +1255,20 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-09-20T11:43:48+00:00"
+            "time": "2026-09-23T21:54:08+00:00"
         },
         {
             "name": "voku/agent-recall-compiler",
-            "version": "0.22.1",
+            "version": "0.25.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/voku/agent-recall-compiler.git",
-                "reference": "135fd3c0c343eb2ecf39ceaf31a1f740147aee9d"
+                "reference": "c5f9819296d4d668a4a473c55e223d3063b36d14"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/voku/agent-recall-compiler/zipball/135fd3c0c343eb2ecf39ceaf31a1f740147aee9d",
-                "reference": "135fd3c0c343eb2ecf39ceaf31a1f740147aee9d",
+                "url": "https://api.github.com/repos/voku/agent-recall-compiler/zipball/c5f9819296d4d668a4a473c55e223d3063b36d14",
+                "reference": "c5f9819296d4d668a4a473c55e223d3063b36d14",
                 "shasum": ""
             },
             "require": {
@@ -1278,7 +1278,7 @@
             "require-dev": {
                 "phpstan/phpstan": "^2.1",
                 "phpunit/phpunit": "^11.5",
-                "voku/agent-learning": "^0.18.7"
+                "voku/agent-learning": "^0.18.23"
             },
             "bin": [
                 "bin/agent-recall-compiler"
@@ -1322,7 +1322,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-09-20T17:41:37+00:00"
+            "time": "2026-09-23T14:13:03+00:00"
         },
         {
             "name": "voku/agent-session",
