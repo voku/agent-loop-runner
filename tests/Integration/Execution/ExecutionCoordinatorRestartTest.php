@@ -406,6 +406,8 @@ final class MutatingCountingHost implements HostAdapter
         $this->lastPrompt = $request->prompt;
         file_put_contents($request->workingDirectory . '/candidate.txt', 'candidate');
         file_put_contents($request->workingDirectory . '/artifact.txt', 'artifact');
+        $startedAt = '2026-01-01T00:00:00+00:00';
+        $request->observer->started(10_000 + $this->executions, $startedAt);
 
         return new HostExecutionResult(
             'codex',
@@ -414,7 +416,7 @@ final class MutatingCountingHost implements HostAdapter
                 "AGENT_LOOP_STAGE_RESULT {\"outcome\":\"pass\",\"summary\":\"done\",\"artifact_references\":[\"artifact.txt\"],\"validation_references\":[]}\n",
                 '',
                 false,
-                '2026-01-01T00:00:00+00:00',
+                $startedAt,
                 '2026-01-01T00:00:01+00:00',
             ),
         );
