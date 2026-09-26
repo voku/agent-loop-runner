@@ -490,7 +490,6 @@ final readonly class ExecutionCoordinator
         }
 
         $identity = [
-            $attempt->hostId,
             (string) $pid,
             $startedAt,
         ];
