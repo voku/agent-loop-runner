@@ -5,3 +5,18 @@ Runner observations progress through `prepared`, `process_started`, `process_exi
 Every `run`/`resume` takes a nonblocking per-task Runner execution lock before reconciliation, then reloads the typed `ExecutionProjection`. Run, Contract revision, plan digest, stage, attempt, base, and candidate mismatches fail closed. Read-only stages must preserve the candidate hash. Attention stops execution. Process exit zero, prose, and file presence never imply acceptance.
 
 Runtime JSON uses a same-directory temporary file, flush/`fsync()` where available, restrictive permissions, and atomic same-filesystem rename. Corrupt or partial JSON is rejected rather than repaired. This provides atomic visibility and process-crash/restart safety for the supported execution model. PHP does not expose a portable parent-directory `fsync`, so the Runner does **not** claim that the rename itself is durable across sudden kernel/power loss on every platform. A total power loss after host execution but before the journal directory entry is durably committed is outside the exactly-once guarantee; after normal process failure/restart, reconciliation always consults fresh `agent-loop` authority before another host invocation.
+
+
+## Process context lineage
+
+When an agent-loop stage bundle declares `context_id_required`, Runner derives a
+bounded opaque context id from the durable execution identity plus the observed
+process `started_at` value. The id is deterministic for one already-executed
+process attempt, so restoring a persisted `StageResult` after a normal Runner
+restart keeps exactly the same context lineage. A later stage or genuinely new
+process attempt gets a different identity.
+
+This is deliberately a **process-level** claim. It proves that Runner did not
+satisfy an independent-review stage by continuing the predecessor stage inside
+the same supervised process attempt. It does not claim that a provider has no
+hidden account-global, server-side, cache, or model state.
