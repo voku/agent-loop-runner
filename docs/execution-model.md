@@ -10,11 +10,15 @@ Runtime JSON uses a same-directory temporary file, flush/`fsync()` where availab
 ## Process context lineage
 
 When an agent-loop stage bundle declares `context_id_required`, Runner derives a
-bounded opaque context id from the durable execution identity plus the observed
-process `started_at` value. The id is deterministic for one already-executed
-process attempt, so restoring a persisted `StageResult` after a normal Runner
-restart keeps exactly the same context lineage. A later stage or genuinely new
-process attempt gets a different identity.
+bounded opaque context id from the observed process PID, `started_at`, and the
+optional `/proc` process fingerprint. Stage, role, host label, attempt, and
+submission identity are deliberately excluded: those workflow values differ by
+construction and therefore cannot prove process separation. The id is
+deterministic for one already-executed process, so restoring a persisted
+`StageResult` after a normal Runner restart keeps exactly the same context
+lineage. A genuinely new observed process gets a different identity; if the
+same observed process were reused by another stage, it would get the same id and
+Loop's `fresh_required` authority would reject it.
 
 This is deliberately a **process-level** claim. It proves that Runner did not
 satisfy an independent-review stage by continuing the predecessor stage inside

@@ -185,7 +185,7 @@ Binary paths can be configured explicitly. Model choice, reasoning/effort settin
 ## Safety invariants
 
 - process exit `0` is only a runtime observation;
-- when Loop requires context lineage, Runner derives one opaque `context_id` from the durable process attempt and its observed start time; this proves Runner process-level separation only, not absence of hidden provider/account-global state;
+- when Loop requires context lineage, Runner derives one opaque `context_id` from the observed process PID + start time + optional `/proc` fingerprint; it deliberately excludes stage/role/submission identity and proves Runner process-level separation only, not absence of hidden provider/account-global state;
 - stdout/stderr never becomes workflow truth;
 - only `agent-loop` accepts a `StageResult` transition;
 - one governed Run gets one isolated Git worktree;
