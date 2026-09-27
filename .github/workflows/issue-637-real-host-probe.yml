@@ -1,4 +1,4 @@
-name: Issue 637 real host probe
+name: Issue 637 real host A-B proof
 
 on:
   push:
@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  codex-provider-probe:
+  paired-pre-plan-proof:
     runs-on: self-hosted
-    timeout-minutes: 10
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
         with:
@@ -23,41 +23,279 @@ jobs:
         with:
           php-version: '8.4'
           coverage: none
-          extensions: posix
+          extensions: pdo_sqlite, sqlite3, posix
           tools: composer:v2
 
-      - name: Install dependencies
-        run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Checkout exact agent-loop base
+        uses: actions/checkout@v6
+        with:
+          repository: voku/agent-loop
+          ref: aeeace749b98b7079d22d4f11024aa1f06b1e498
+          path: target-template
+          persist-credentials: false
 
-      - name: Create isolated smoke repository
+      - name: Prepare identical repositories with fresh Map/Search
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf "$RUNNER_TEMP/issue-637-provider-smoke"
-          mkdir -p "$RUNNER_TEMP/issue-637-provider-smoke"
-          git -C "$RUNNER_TEMP/issue-637-provider-smoke" init -q
-          git -C "$RUNNER_TEMP/issue-637-provider-smoke" config user.name issue-637
-          git -C "$RUNNER_TEMP/issue-637-provider-smoke" config user.email issue-637@example.invalid
-          printf 'issue 637 provider probe\n' > "$RUNNER_TEMP/issue-637-provider-smoke/README.md"
-          git -C "$RUNNER_TEMP/issue-637-provider-smoke" add README.md
-          git -C "$RUNNER_TEMP/issue-637-provider-smoke" commit -qm fixture
+          composer install --working-dir=target-template --no-interaction --prefer-dist --no-progress
 
-      - name: Probe real Codex adapter
+          mkdir -p target-template/.agent-loop/map
+          target-template/vendor/bin/agent-map build \
+            --root="$GITHUB_WORKSPACE/target-template" \
+            --paths=src \
+            --out="$GITHUB_WORKSPACE/target-template/.agent-loop/map/php-symbols.json" \
+            --phpstan-memory-limit=512M
+          target-template/vendor/bin/agent-map search-index build \
+            --root="$GITHUB_WORKSPACE/target-template" \
+            --index="$GITHUB_WORKSPACE/target-template/.agent-loop/map/php-symbols.json" \
+            --database="$GITHUB_WORKSPACE/target-template/.agent-loop/map/search.sqlite"
+
+          evidence="$RUNNER_TEMP/issue-637-ab"
+          baseline="$RUNNER_TEMP/issue-637-baseline"
+          treatment="$RUNNER_TEMP/issue-637-treatment"
+          rm -rf "$evidence" "$baseline" "$treatment"
+          mkdir -p "$evidence" "$baseline" "$treatment"
+          cp -a target-template/. "$baseline/"
+          cp -a target-template/. "$treatment/"
+
+          git -C "$baseline" rev-parse HEAD > "$evidence/base-sha.txt"
+          test "$(cat "$evidence/base-sha.txt")" = 'aeeace749b98b7079d22d4f11024aa1f06b1e498'
+          git -C "$treatment" rev-parse HEAD | diff -u "$evidence/base-sha.txt" -
+
+          echo "ISSUE_637_EVIDENCE=$evidence" >> "$GITHUB_ENV"
+          echo "ISSUE_637_BASELINE=$baseline" >> "$GITHUB_ENV"
+          echo "ISSUE_637_TREATMENT=$treatment" >> "$GITHUB_ENV"
+
+      - name: Freeze treatment evidence and response schema
         shell: bash
         run: |
+          set -euo pipefail
+          cat > "$ISSUE_637_EVIDENCE/projection.json" <<'JSON'
+          {
+            "evidence_state": "ranked_unverified",
+            "projection_source_run": 36339907614,
+            "candidates": [
+              {"rank":1,"symbol_id":"method:voku\\AgentLoop\\Init\\InitSyncPolicyCommand::boundaryHint","file":"src/Init/InitSyncPolicyCommand.php","line_start":78,"line_end":87},
+              {"rank":2,"symbol_id":"method:voku\\AgentLoop\\Init\\RepositorySetupService::runtimeBoundary","file":"src/Init/RepositorySetupService.php","line_start":821,"line_end":833},
+              {"rank":3,"symbol_id":"method:voku\\AgentLoop\\Init\\InitInstallPlanCommand::renderActivation","file":"src/Init/InitInstallPlanCommand.php","line_start":102,"line_end":141},
+              {"rank":4,"symbol_id":"method:voku\\AgentLoop\\Init\\HostCapabilityMatrix::hookMechanism","file":"src/Init/HostCapabilityMatrix.php","line_start":161,"line_end":169},
+              {"rank":5,"symbol_id":"method:voku\\AgentLoop\\Init\\HostPolicyProjector::inspectCursor","file":"src/Init/HostPolicyProjector.php","line_start":172,"line_end":216}
+            ],
+            "structural_context": [
+              {
+                "seed_rank":1,
+                "target":"voku\\AgentLoop\\Init\\InitSyncPolicyCommand::boundaryHint",
+                "slices":[
+                  {"path":"src/Init/HostPolicyProjector.php","line_start":91,"line_end":102,"role":"dependency"},
+                  {"path":"src/Init/InitSyncPolicyCommand.php","line_start":22,"line_end":76,"role":"change_candidate"},
+                  {"path":"src/Init/InitSyncPolicyCommand.php","line_start":77,"line_end":87,"role":"primary"}
+                ]
+              },
+              {
+                "seed_rank":2,
+                "target":"voku\\AgentLoop\\Init\\RepositorySetupService::runtimeBoundary",
+                "slices":[
+                  {"path":"src/Init/HostPolicyProjector.php","line_start":91,"line_end":102,"role":"dependency"},
+                  {"path":"src/Init/RepositorySetupService.php","line_start":546,"line_end":613,"role":"change_candidate"},
+                  {"path":"src/Init/RepositorySetupService.php","line_start":819,"line_end":833,"role":"primary"}
+                ]
+              },
+              {
+                "seed_rank":3,
+                "target":"voku\\AgentLoop\\Init\\InitInstallPlanCommand::renderActivation",
+                "slices":[
+                  {"path":"src/Init/InitInstallPlanCommand.php","line_start":52,"line_end":85,"role":"change_candidate"},
+                  {"path":"src/Init/InitInstallPlanCommand.php","line_start":101,"line_end":141,"role":"primary"}
+                ]
+              }
+            ]
+          }
+          JSON
+
+          cat > "$ISSUE_637_EVIDENCE/decision.schema.json" <<'JSON'
+          {
+            "type":"object",
+            "additionalProperties":false,
+            "properties":{
+              "first_investigation_target":{"type":"string"},
+              "contract_files":{"type":"array","items":{"type":"string"}},
+              "validation":{"type":"array","items":{"type":"string"}},
+              "reason":{"type":"string"}
+            },
+            "required":["first_investigation_target","contract_files","validation","reason"]
+          }
+          JSON
+
+      - name: Build matched prompts
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$ISSUE_637_EVIDENCE/common.prompt" <<'PROMPT'
+          Perform only the first pre-PLAN investigation for this real agent-loop task.
+          Do not create, modify, or delete files. Stop before implementation, Contract creation, or approval.
+
+          Task: feat(init): extend Cursor authority coverage beyond shell hooks
+
+          Intent:
+          Close the authority-coverage gap for Cursor without broadening claims beyond evidence.
+          Inventory Cursor CLI and MCP authority routes, preserve unrelated project configuration and hooks,
+          and identify the smallest safe owner boundary without claiming runtime coverage before proof.
+
+          Canonical next action:
+          agent-loop workflow plan DOG-616 --by <actor> --file <path> --goal <goal> --validation <validation>
+
+          Inspect repository source as needed and determine:
+          - the first source symbol/file that should be investigated;
+          - the smallest proposed Contract file scope justified by inspected source;
+          - the validation command(s) that belong in that Contract.
+
+          Repository source is authoritative. Your final response must satisfy the supplied JSON schema.
+          PROMPT
+
+          cp "$ISSUE_637_EVIDENCE/common.prompt" "$ISSUE_637_EVIDENCE/baseline.prompt"
+          {
+            cat "$ISSUE_637_EVIDENCE/common.prompt"
+            printf '\nAdditional deterministic repository evidence follows.\n'
+            printf 'It is ranked and unverified navigation evidence only. Verify source before relying on it.\n'
+            printf 'It does not authorize scope, a PLAN, or approval.\n\n'
+            cat "$ISSUE_637_EVIDENCE/projection.json"
+            printf '\n'
+          } > "$ISSUE_637_EVIDENCE/treatment.prompt"
+
+          wc -c "$ISSUE_637_EVIDENCE/baseline.prompt" "$ISSUE_637_EVIDENCE/treatment.prompt" \
+            > "$ISSUE_637_EVIDENCE/prompt-bytes.txt"
+
+      - name: Prove Codex binary availability
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v codex > "$ISSUE_637_EVIDENCE/codex-path.txt"
+          codex --version | tee "$ISSUE_637_EVIDENCE/codex-version.txt"
+
+      - name: Execute fresh baseline host
+        shell: bash
+        run: |
+          set -euo pipefail
           set +e
-          php tools/provider-smoke.php codex "$RUNNER_TEMP/issue-637-provider-smoke" | tee issue-637-provider-smoke.json
-          status=${PIPESTATUS[0]}
+          (
+            cd "$ISSUE_637_BASELINE"
+            codex exec --ephemeral --json --sandbox read-only \
+              --output-schema "$ISSUE_637_EVIDENCE/decision.schema.json" \
+              - < "$ISSUE_637_EVIDENCE/baseline.prompt"
+          ) > "$ISSUE_637_EVIDENCE/baseline.events.jsonl" \
+            2> "$ISSUE_637_EVIDENCE/baseline.stderr"
+          rc=$?
           set -e
-          if [ "$status" -eq 10 ]; then
-            echo "ISSUE_637_HOST_UNAVAILABLE"
-            exit 0
-          fi
-          exit "$status"
+          printf '%s\n' "$rc" > "$ISSUE_637_EVIDENCE/baseline.exit"
+          test "$rc" -eq 0
+          test -z "$(git -C "$ISSUE_637_BASELINE" status --porcelain=v1)"
+
+      - name: Execute fresh treatment host
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          (
+            cd "$ISSUE_637_TREATMENT"
+            codex exec --ephemeral --json --sandbox read-only \
+              --output-schema "$ISSUE_637_EVIDENCE/decision.schema.json" \
+              - < "$ISSUE_637_EVIDENCE/treatment.prompt"
+          ) > "$ISSUE_637_EVIDENCE/treatment.events.jsonl" \
+            2> "$ISSUE_637_EVIDENCE/treatment.stderr"
+          rc=$?
+          set -e
+          printf '%s\n' "$rc" > "$ISSUE_637_EVIDENCE/treatment.exit"
+          test "$rc" -eq 0
+          test -z "$(git -C "$ISSUE_637_TREATMENT" status --porcelain=v1)"
+
+      - name: Compile observable paired receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          for run in baseline treatment; do
+            events="$ISSUE_637_EVIDENCE/$run.events.jsonl"
+            if [ -f "$events" ]; then
+              jq -r 'select(.type == "item.started" and .item.type == "command_execution") | .item.command' \
+                "$events" > "$ISSUE_637_EVIDENCE/$run.commands.txt"
+              jq -r 'select(.type == "item.completed" and .item.type == "agent_message") | .item.text' \
+                "$events" | tail -n 1 > "$ISSUE_637_EVIDENCE/$run.decision.json"
+              jq -c 'select(.type == "turn.completed") | .usage' \
+                "$events" | tail -n 1 > "$ISSUE_637_EVIDENCE/$run.usage.json"
+              grep -m1 -E 'src/[^ ]+\.php|src/Init/' \
+                "$ISSUE_637_EVIDENCE/$run.commands.txt" \
+                > "$ISSUE_637_EVIDENCE/$run.first-source-command.txt" || true
+            fi
+          done
+
+          php -r '
+            $root = $argv[1];
+            $read = static fn(string $file): ?string =>
+                is_file($file) ? trim((string) file_get_contents($file)) : null;
+            $decode = static function (?string $text): ?array {
+                if ($text === null || $text === "") {
+                    return null;
+                }
+                try {
+                    $value = json_decode($text, true, 512, JSON_THROW_ON_ERROR);
+                    return is_array($value) ? $value : null;
+                } catch (JsonException) {
+                    return null;
+                }
+            };
+            $readRun = static function (string $name) use ($root, $read, $decode): array {
+                $commands = $read($root . "/" . $name . ".commands.txt");
+                $commandList = $commands === null ? [] : (preg_split("/\\R/", $commands) ?: []);
+                return [
+                    "exit_code" => ($exit = $read($root . "/" . $name . ".exit")) === null ? null : (int) $exit,
+                    "first_command" => $commandList[0] ?? null,
+                    "first_source_command" => $read($root . "/" . $name . ".first-source-command.txt"),
+                    "commands" => array_slice($commandList, 0, 12),
+                    "decision" => $decode($read($root . "/" . $name . ".decision.json")),
+                    "usage" => $decode($read($root . "/" . $name . ".usage.json")),
+                ];
+            };
+            $baseline = $readRun("baseline");
+            $treatment = $readRun("treatment");
+            $receipt = [
+                "schema_version" => "1.0",
+                "task" => "DOG-616 / agent-loop#616",
+                "base_sha" => $read($root . "/base-sha.txt"),
+                "projection_source_run" => 36339907614,
+                "host" => [
+                    "version" => $read($root . "/codex-version.txt"),
+                    "fresh_context" => "separate codex exec --ephemeral processes",
+                    "sandbox" => "read-only",
+                ],
+                "baseline" => $baseline,
+                "treatment" => $treatment,
+                "comparison" => [
+                    "same_first_source_command" =>
+                        ($baseline["first_source_command"] ?? null) === ($treatment["first_source_command"] ?? null),
+                    "same_first_investigation_target" =>
+                        ($baseline["decision"]["first_investigation_target"] ?? null)
+                        === ($treatment["decision"]["first_investigation_target"] ?? null),
+                    "same_contract_files" =>
+                        ($baseline["decision"]["contract_files"] ?? null)
+                        === ($treatment["decision"]["contract_files"] ?? null),
+                    "same_validation" =>
+                        ($baseline["decision"]["validation"] ?? null)
+                        === ($treatment["decision"]["validation"] ?? null),
+                ],
+            ];
+            file_put_contents(
+                $root . "/receipt.json",
+                json_encode($receipt, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n",
+            );
+          ' "$ISSUE_637_EVIDENCE"
+
+          cat "$ISSUE_637_EVIDENCE/receipt.json"
 
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: issue-637-provider-probe-${{ github.run_id }}
-          path: issue-637-provider-smoke.json
-          if-no-files-found: warn
+          name: issue-637-real-host-ab-${{ github.run_id }}
+          path: ${{ runner.temp }}/issue-637-ab
+          if-no-files-found: error
+          retention-days: 30
