@@ -1,0 +1,63 @@
+name: Issue 637 real host probe
+
+on:
+  push:
+    branches:
+      - dogfood/637-real-host-probe
+    paths:
+      - '.github/workflows/issue-637-real-host-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  codex-provider-probe:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+          extensions: posix
+          tools: composer:v2
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Create isolated smoke repository
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/issue-637-provider-smoke"
+          mkdir -p "$RUNNER_TEMP/issue-637-provider-smoke"
+          git -C "$RUNNER_TEMP/issue-637-provider-smoke" init -q
+          git -C "$RUNNER_TEMP/issue-637-provider-smoke" config user.name issue-637
+          git -C "$RUNNER_TEMP/issue-637-provider-smoke" config user.email issue-637@example.invalid
+          printf 'issue 637 provider probe\n' > "$RUNNER_TEMP/issue-637-provider-smoke/README.md"
+          git -C "$RUNNER_TEMP/issue-637-provider-smoke" add README.md
+          git -C "$RUNNER_TEMP/issue-637-provider-smoke" commit -qm fixture
+
+      - name: Probe real Codex adapter
+        shell: bash
+        run: |
+          set +e
+          php tools/provider-smoke.php codex "$RUNNER_TEMP/issue-637-provider-smoke" | tee issue-637-provider-smoke.json
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -eq 10 ]; then
+            echo "ISSUE_637_HOST_UNAVAILABLE"
+            exit 0
+          fi
+          exit "$status"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: issue-637-provider-probe-${{ github.run_id }}
+          path: issue-637-provider-smoke.json
+          if-no-files-found: warn
