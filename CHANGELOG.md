@@ -4,6 +4,7 @@
 
 ### Added
 
+- `doctor TASK` adds an advisory, read-only `validation` object for the current stage: per declared validation command `ok`, `missing_worktree_dependency` (relative `vendor/` path not tracked in the Contract base commit), or `not_inspectable` (shell syntax is never parsed), plus a note that coverage of mandatory CI gates such as PHPStan is not checked and must be listed in the Contract. `doctor` without a task, exit codes, and stage execution are unchanged; no dependencies are provisioned. `docs/execution-model.md` documents that validation commands must run inside the worktree without undeclared dependencies.
 - `doctor` reports a `roles` object mapping every configured role to `<host-id>: available` or `<host-id>: unavailable`, using the same probe as the `host_<id>` keys, so roles whose host cannot run are visible before `run`. Existing keys and the exit code are unchanged.
 
 ### Fixed

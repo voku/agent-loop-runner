@@ -9,6 +9,7 @@ use RuntimeException;
 use Throwable;
 use voku\AgentLoop\Execution\ExecutionGateway;
 use voku\AgentLoopRunner\Config\RunnerConfig;
+use voku\AgentLoopRunner\Diagnostics\ValidationCommandInspector;
 use voku\AgentLoopRunner\Git\GitCommand;
 use voku\AgentLoopRunner\Host\AgyHostAdapter;
 use voku\AgentLoopRunner\Host\ClaudeHostAdapter;
@@ -31,7 +32,7 @@ final readonly class RunnerApplication
         $task = $arguments[1] ?? null;
         try {
             return match ($command) {
-                'doctor' => $this->doctor(),
+                'doctor' => $this->doctor($task !== null && trim($task) !== '' ? $task : null),
                 'status' => $this->withTask($task, fn (string $id): int => $this->status($id)),
                 'run', 'resume' => $this->withTask($task, fn (string $id): int => $this->execute($id, $command)),
                 'cancel' => $this->withTask($task, fn (string $id): int => $this->cancel($id)),
@@ -45,7 +46,7 @@ final readonly class RunnerApplication
         }
     }
 
-    private function doctor(): int
+    private function doctor(?string $taskId): int
     {
         $supervisor = new ForegroundProcessSupervisor();
         $config = RunnerConfig::load($this->projectRoot);
@@ -66,9 +67,56 @@ final readonly class RunnerApplication
             $roles[$roleId] = $hostId . ': ' . (($hostAvailable[$hostId] ?? false) ? 'available' : 'unavailable');
         }
         $checks['roles'] = $roles;
+        $exit = in_array('missing', $checks, true) ? ExitCode::TRANSITION_REJECTED : ExitCode::OK;
+        if ($taskId !== null) {
+            $checks['validation'] = $this->validationAdvisory($supervisor, $taskId);
+        }
         $this->json($checks);
 
-        return in_array('missing', $checks, true) ? ExitCode::TRANSITION_REJECTED : ExitCode::OK;
+        return $exit;
+    }
+
+    /**
+     * Read-only, advisory view of the current stage's declared validation commands.
+     * Never submits a result, never writes, and never influences the exit code.
+     *
+     * @return array<string, mixed>
+     */
+    private function validationAdvisory(ForegroundProcessSupervisor $supervisor, string $taskId): array
+    {
+        $advisory = ['stage' => null, 'commands' => [], 'note' => ValidationCommandInspector::COMPLETENESS_NOTE];
+        try {
+            $gateway = new ExecutionGateway($this->projectRoot);
+            $stageId = $gateway->projection($taskId)->currentStageId;
+            if ($stageId === null) {
+                $advisory['reason'] = 'no current stage';
+
+                return $advisory;
+            }
+            $advisory['stage'] = $stageId;
+            $bundle = $gateway->prepareStage($taskId, $stageId);
+            $commands = $bundle->requiredValidation;
+            $baseCommit = $bundle->baseCommit;
+            if ($baseCommit === null) {
+                $advisory['commands'] = ValidationCommandInspector::notInspectable($commands, 'Contract base commit is unknown');
+
+                return $advisory;
+            }
+            $git = new GitCommand($supervisor, (new EnvironmentProjector())->project(['PATH']));
+            $inspector = new ValidationCommandInspector(function (string $path) use ($git, $baseCommit): bool {
+                $result = $git->run($this->projectRoot, ['ls-tree', '-r', '--name-only', $baseCommit, '--', $path]);
+                if (!$result->successful()) {
+                    throw new RuntimeException('git ls-tree failed');
+                }
+
+                return trim($result->stdout) !== '';
+            });
+            $advisory['commands'] = $inspector->inspect($commands);
+        } catch (Throwable $exception) {
+            $advisory['reason'] = 'validation commands could not be read: ' . $exception->getMessage();
+        }
+
+        return $advisory;
     }
 
     private function status(string $taskId): int
