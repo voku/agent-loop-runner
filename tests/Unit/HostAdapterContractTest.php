@@ -86,6 +86,45 @@ final class HostAdapterContractTest extends TestCase
         }
     }
 
+    public function testMutatingStageGetsAcceptEditsAndExactRulesBeforeThePrompt(): void
+    {
+        $supervisor = new RecordingProcessSupervisor();
+        (new ClaudeHostAdapter($this->binary))->execute($this->request(true, ['vendor/bin/phpunit tests/FooTest.php']), $supervisor);
+
+        self::assertNotNull($supervisor->lastRequest);
+        self::assertSame(
+            [$this->binary, '--permission-mode', 'acceptEdits', '--allowedTools', 'Bash(vendor/bin/phpunit tests/FooTest.php)', '-p', 'prompt'],
+            $supervisor->lastRequest->argv,
+        );
+    }
+
+    public function testReadOnlyStageNeverReceivesBashRules(): void
+    {
+        $supervisor = new RecordingProcessSupervisor();
+        (new ClaudeHostAdapter($this->binary))->execute($this->request(false, ['vendor/bin/phpunit tests/FooTest.php']), $supervisor);
+
+        self::assertNotNull($supervisor->lastRequest);
+        self::assertSame([$this->binary, '-p', 'prompt'], $supervisor->lastRequest->argv);
+    }
+
+    public function testUnrepresentableValidationStopsTheStageBeforeAnyProcessStarts(): void
+    {
+        $supervisor = new RecordingProcessSupervisor();
+        try {
+            (new ClaudeHostAdapter($this->binary))->execute($this->request(true, ['vendor/bin/phpunit tests/*']), $supervisor);
+            self::fail('An unrepresentable validation command must stop the stage.');
+        } catch (\RuntimeException $exception) {
+            self::assertStringContainsString('PERMISSION_UNREPRESENTABLE', $exception->getMessage());
+        }
+        self::assertNull($supervisor->lastRequest, 'No host process may start.');
+    }
+
+    /** @param list<string> $validation */
+    private function request(bool $mayMutate, array $validation): HostExecutionRequest
+    {
+        return new HostExecutionRequest('builder', sys_get_temp_dir(), 'prompt', [], 30, mayMutate: $mayMutate, validationCommands: $validation);
+    }
+
     /** @param list<string> $expectedArgv */
     #[DataProvider('adapters')]
     public function testAdapterKeepsPromptAsProcessData(HostAdapter $template, array $expectedArgv, string $expectedStdin): void

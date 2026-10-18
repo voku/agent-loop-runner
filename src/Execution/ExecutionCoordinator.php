@@ -243,6 +243,7 @@ final readonly class ExecutionCoordinator
                             $modelPolicy?->model,
                             $modelPolicy?->reasoningEffort,
                             $bundle->mayMutate,
+                            $bundle->requiredValidation,
                         ),
                         $this->supervisor,
                     );

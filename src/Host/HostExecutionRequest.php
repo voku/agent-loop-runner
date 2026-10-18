@@ -26,8 +26,13 @@ final readonly class HostExecutionRequest
     public ?string $reasoningEffort;
     /** Loop's per-stage authority: the stage may modify its isolated workspace. */
     public bool $mayMutate;
+    /** @var list<string> The approved Contract's validation commands for this stage (Loop's requiredValidation). */
+    public array $validationCommands;
 
-    /** @param array<string, string> $environment */
+    /**
+     * @param array<string, string> $environment
+     * @param list<string> $validationCommands
+     */
     public function __construct(
         string $roleId,
         string $workingDirectory,
@@ -38,6 +43,7 @@ final readonly class HostExecutionRequest
         ?string $model = null,
         ?string $reasoningEffort = null,
         bool $mayMutate = false,
+        array $validationCommands = [],
     )
     {
         if ($roleId === '' || $workingDirectory === '' || $prompt === '' || $timeoutSeconds < 1) {
@@ -58,5 +64,6 @@ final readonly class HostExecutionRequest
         $this->model = $model;
         $this->reasoningEffort = $reasoningEffort;
         $this->mayMutate = $mayMutate;
+        $this->validationCommands = $validationCommands;
     }
 }

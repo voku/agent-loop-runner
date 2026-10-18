@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- Headless Claude Code builders can run the Contract's own validation: for stages with `mayMutate`, the `claude` adapter adds one exact `--allowedTools 'Bash(<command>)'` rule per `requiredValidation` command of the approved Contract, next to `acceptEdits`. No wildcard, no bypass mode, no persistent settings. A command that cannot be represented as plain tokens (wildcards, quotes, parentheses, separators, redirections, expansions, commas, double or edge spaces, leading `-`, over 500 characters) fails the stage closed with `PERMISSION_UNREPRESENTABLE` before a process starts. Read-only stages get no Bash rules.
 - Headless Claude Code builders can edit their isolated worktree: the `claude` adapter adds `--permission-mode acceptEdits` for stages Loop authorizes to mutate (`mayMutate`). Previously `claude -p` had no permission mode, every edit was refused and the stage came back `blocked`. Read-only stages are unchanged and no permission-bypass flag is introduced.
 
 ## [0.1.5] - 2026-09-26
