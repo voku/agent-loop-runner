@@ -36,6 +36,7 @@ final readonly class RunnerApplication
                 'status' => $this->withTask($task, fn (string $id): int => $this->status($id)),
                 'run', 'resume' => $this->withTask($task, fn (string $id): int => $this->execute($id, $command)),
                 'cancel' => $this->withTask($task, fn (string $id): int => $this->cancel($id)),
+                'abandon' => $this->withTask($task, fn (string $id): int => $this->abandon($id, array_slice($arguments, 2))),
                 'cleanup' => $this->withTask($task, fn (string $id): int => $this->cleanup($id)),
                 default => $this->usage(),
             };
@@ -146,6 +147,49 @@ final readonly class RunnerApplication
         return ExitCode::OK;
     }
 
+    /** @param list<string> $options */
+    private function abandon(string $taskId, array $options): int
+    {
+        $by = null;
+        $reason = null;
+        for ($i = 0, $count = count($options); $i < $count; $i += 2) {
+            $value = $options[$i + 1] ?? null;
+            if ($value === null || trim($value) === '') {
+                return $this->abandonUsage();
+            }
+            if ($options[$i] === '--by') {
+                $by = $value;
+            } elseif ($options[$i] === '--reason') {
+                $reason = $value;
+            } else {
+                return $this->abandonUsage();
+            }
+        }
+        if ($by === null || $reason === null) {
+            return $this->abandonUsage();
+        }
+
+        $attempt = $this->controls()->abandon($taskId, $by, $reason);
+        $this->json([
+            'task_id' => $attempt->taskId,
+            'stage_id' => $attempt->stageId,
+            'attempt' => $attempt->attempt,
+            'status' => $attempt->status->value,
+            'abandoned_by' => $attempt->process['abandoned_by'] ?? null,
+            'abandoned_reason' => $attempt->process['abandoned_reason'] ?? null,
+            'abandoned_at' => $attempt->process['abandoned_at'] ?? null,
+        ]);
+
+        return ExitCode::OK;
+    }
+
+    private function abandonUsage(): int
+    {
+        fwrite(STDERR, "Usage: agent-loop-runner abandon TASK --by <actor> --reason <text>\n");
+
+        return ExitCode::USAGE;
+    }
+
     private function cleanup(string $taskId): int
     {
         $this->controls()->cleanup($taskId);
@@ -189,7 +233,7 @@ final readonly class RunnerApplication
 
     private function usage(): int
     {
-        fwrite(STDERR, "Usage: agent-loop-runner <doctor|status|run|resume|cancel|cleanup> [TASK]\n");
+        fwrite(STDERR, "Usage: agent-loop-runner <doctor|status|run|resume|cancel|abandon|cleanup> [TASK]\n");
 
         return ExitCode::USAGE;
     }

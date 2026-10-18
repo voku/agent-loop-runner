@@ -111,6 +111,67 @@ final readonly class RuntimeJournal
         });
     }
 
+    /**
+     * Records, as attributed operator evidence, that the recorded provider process no longer exists.
+     *
+     * Same exact-observation check as cancel(), but nothing is signalled: the caller proves the process
+     * is gone, and the attempt moves to the terminal Cancelled status so cleanup may retire it. No stage
+     * result or completion envelope is created and nothing is submitted.
+     *
+     * @param callable(RuntimeAttempt): bool $identityIsGone
+     */
+    public function abandon(RuntimeAttempt $expected, string $by, string $reason, callable $identityIsGone): RuntimeAttempt
+    {
+        $by = trim($by);
+        $reason = trim($reason);
+        if ($by === '' || strlen($by) > 200 || $reason === '' || strlen($reason) > 1000) {
+            throw new RuntimeException('PROCESS_FAILED: abandon needs a non-empty actor (max 200 bytes) and reason (max 1000 bytes).');
+        }
+        $path = $this->layout->runtime($expected->taskId);
+
+        return $this->withLock($path, function () use ($expected, $path, $by, $reason, $identityIsGone): RuntimeAttempt {
+            $current = $this->readPath($path);
+            if ($current === null
+                || $current->status !== AttemptStatus::ProcessStarted
+                || !$current->sameAuthority(
+                    $expected->runId,
+                    $expected->contractRevision,
+                    $expected->executionPlanDigest,
+                    $expected->stageId,
+                    $expected->attempt,
+                )
+                || !hash_equals($current->submissionId, $expected->submissionId)
+                || $current->process !== $expected->process) {
+                throw new RuntimeException('PROCESS_FAILED: active process observation changed before abandon.');
+            }
+            if (!$identityIsGone($current)) {
+                throw new RuntimeException('PROCESS_FAILED: recorded process is still running; use cancel.');
+            }
+
+            $now = (new DateTimeImmutable())->format(DATE_ATOM);
+            $abandoned = new RuntimeAttempt(
+                $current->taskId,
+                $current->runId,
+                $current->contractRevision,
+                $current->executionPlanDigest,
+                $current->stageId,
+                $current->attempt,
+                $current->hostId,
+                $current->workspaceIdentity,
+                $current->submissionId,
+                AttemptStatus::Cancelled,
+                $current->candidateRevision,
+                $current->stageResult,
+                [...$current->process, 'abandoned_by' => $by, 'abandoned_reason' => $reason, 'abandoned_at' => $now],
+                $now,
+                $current->completionEnvelope,
+            );
+            $this->writePath($path, $abandoned);
+
+            return $abandoned;
+        });
+    }
+
     private function readPath(string $path): ?RuntimeAttempt
     {
         if (!is_file($path)) {

@@ -32,3 +32,17 @@ Every governed Run executes in an isolated Git worktree created from the Contrac
 Invariant: a Contract's validation commands must be executable inside that worktree without undeclared dependencies. A command that needs `vendor/bin/...` can only pass if the dependency is tracked or the Contract itself declares the step that provides it. List every mandatory gate, including PHPStan, in the Contract; Runner does not infer gates from CI configuration.
 
 `agent-loop-runner doctor TASK` gives an advisory, read-only check of the current stage's declared validation commands, read through `ExecutionGateway` against the Contract base commit. Each command is reported as `ok`, `missing_worktree_dependency` (with the relative `vendor/` path that is not tracked in the base commit), or `not_inspectable` (with a reason; commands that are not plain space-separated tokens are never parsed). The `validation` object always carries a note that coverage of mandatory CI gates is not checked. These are warnings only: they do not change exit codes, stage execution, or validation acceptance.
+
+## Abandoning a stale attempt
+
+If the Runner itself is killed (for example `kill -9`) after it recorded `process_started` and before it recorded the process exit, the journal holds an attempt with no exit evidence. `run` and `resume` then fail closed with `PROCESS_FAILED: incomplete prior process observation requires operator evidence`, and `cancel` fails with `owned process identity is stale` because there is no live process left to signal.
+
+`agent-loop-runner abandon TASK --by <actor> --reason <text>` is the explicit operator step that supplies that evidence. It takes the per-task execution lock and then requires all of the following, otherwise it fails closed with `PROCESS_FAILED` and leaves the journal byte-identical:
+
+- the attempt is `process_started` and unchanged since it was read;
+- a non-empty actor (at most 200 bytes) and a reason (at most 1000 bytes) are given; Runner never inspects whether the actor looks human;
+- the recorded process identity is **provably gone**: the pid no longer exists, or it now belongs to a process with a different fingerprint (pid reuse), **and** nothing is left in the provider's process group (the provider runs as its own group leader, so a child can outlive it; a group with live members is refused and must be stopped first, because `cancel` only works while the leader is alive). A process that is still running is refused with a pointer to `cancel`; an identity that cannot be inspected on this platform, or a record without pid and fingerprint, is refused because gone-ness cannot be proven.
+
+On success the attempt keeps its Run, Contract revision, plan digest, stage, attempt and submission id, becomes `cancelled` with no stage result and no completion envelope, and its process evidence gains `abandoned_by`, `abandoned_reason` and `abandoned_at`. `abandon` never starts a provider, submits a result or talks to `agent-loop`; Loop's projection stays authoritative and unchanged.
+
+`abandon` is not the last step. `cleanup` then retires the record and the worktree **only if the worktree is clean**. A provider that outlived the Runner may have left edits behind; `cleanup` keeps refusing a dirty worktree (`Refusing to remove dirty Run workspace`), so inspect it (`git -C <worktree> status` and `diff`), keep or discard the changes yourself, then run `cleanup`. After `cleanup` the stage can be run again from a fresh attempt, with Loop's projection deciding which stage that is.
