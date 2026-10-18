@@ -48,11 +48,17 @@ final class RunnerDoctorValidationTest extends TestCase
     {
         $this->plan(['php -v', 'php vendor/bin/phpunit tests', "php -r 'echo 1;'"]);
 
+        $statusBefore = (new RunnerControlService($this->root))->status('TASK-1');
+        self::assertNull($statusBefore->observation?->stageResult);
         $projectionBefore = $this->projection();
         $treeBefore = $this->tree();
         [$exitWithout] = $this->doctor([]);
         [$exit, $data] = $this->doctor(['TASK-1']);
 
+        $statusAfter = (new RunnerControlService($this->root))->status('TASK-1');
+        self::assertNull($statusAfter->observation?->stageResult, 'doctor TASK must not persist a stage result.');
+        self::assertSame($statusBefore->authority->currentStageId, $statusAfter->authority->currentStageId);
+        self::assertSame($statusBefore->authority->currentAttempt, $statusAfter->authority->currentAttempt);
         self::assertSame($exitWithout, $exit);
         self::assertSame($projectionBefore, $this->projection());
         self::assertSame($treeBefore, $this->tree());
