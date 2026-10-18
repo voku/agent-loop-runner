@@ -60,12 +60,16 @@ final class RunnerStatusCancellationTest extends TestCase
 
     public function testVanishedPidAdvertisesNoCancel(): void
     {
-        $process = proc_open([PHP_BINARY, '-r', 'exit(0);'], [], $pipes);
+        $process = proc_open([PHP_BINARY, '-r', 'sleep(30);'], [], $pipes);
         self::assertIsResource($process);
         $pid = proc_get_status($process)['pid'];
+        $fingerprint = ProcessIdentity::fingerprint($pid);
+        self::assertNotNull($fingerprint);
+        self::assertTrue(proc_terminate($process, SIGKILL));
         proc_close($process);
+        self::assertFalse(posix_kill($pid, 0), 'fixture pid must be gone');
 
-        self::assertFalse($this->cancelAdvertised(['pid' => $pid, 'process_fingerprint' => 'sha256:gone']));
+        self::assertFalse($this->cancelAdvertised(['pid' => $pid, 'process_fingerprint' => $fingerprint]));
     }
 
     public function testLiveMatchingProcessThatIsNotAGroupLeaderAdvertisesNoCancel(): void
