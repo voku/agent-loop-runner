@@ -33,6 +33,26 @@ Invariant: a Contract's validation commands must be executable inside that workt
 
 `agent-loop-runner doctor TASK` gives an advisory, read-only check of the current stage's declared validation commands, read through `ExecutionGateway` against the Contract base commit. Each command is reported as `ok`, `missing_worktree_dependency` (with the relative `vendor/` path that is not tracked in the base commit), or `not_inspectable` (with a reason; commands that are not plain space-separated tokens are never parsed). The `validation` object always carries a note that coverage of mandatory CI gates is not checked. These are warnings only: they do not change exit codes, stage execution, or validation acceptance.
 
+## Attention and recovery
+
+**`WAITING_FOR_ATTENTION`.** When the freshly loaded `ExecutionProjection` carries an Attention, `run` and `resume` stop before any host invocation. They write `WAITING_FOR_ATTENTION: <attention-id>` to stderr and exit with code `16` (`ExitCode::WAITING_FOR_ATTENTION`). When an Attention is already open, Runner starts no process. The check runs once per reconciliation iteration, before any host invocation, and nothing interrupts a provider process that is already running: if an Attention is raised during an active invocation, that invocation finishes, Runner then attempts to submit its result, and Loop rejects a new submission while an Attention is open (`Execution is waiting for Attention <id>`). The next `run`/`resume` stops at the check above.
+
+**Where the id is visible.** The Attention id is in the stderr message above and in `agent-loop-runner status TASK` as `authority.attention_id` (`null` when there is no Attention). Both come from the Loop projection.
+
+**Who resolves it.** Attention is owned and resolved by `agent-loop` (`workflow attention --resolve`). Runner never resolves, clears, or works around an Attention; its journal label `waiting_for_attention` is only an observation. After Loop resolves the Attention, run `resume TASK` (or `run TASK`).
+
+**What `run`/`resume` do after an interruption.** Both take the per-task execution lock and enter the same reconciliation. It handles an Attention stop and a Runner restart after the provider process has exited:
+
+1. Reload the Loop projection. It wins over any old Runner-private journal state.
+2. Fail closed with `STALE_RUN` if the journal's Run, Contract revision, or plan digest differs from the projection. The message names `agent-loop-runner cleanup TASK` as the way forward.
+3. If the journal belongs to a stage or attempt Loop has already moved past, mark it `reconciled_accepted`; that stage is not re-run.
+4. If a stage result was persisted but not yet accepted, resubmit that result to Loop instead of invoking the host again; Loop decides whether to accept it.
+5. If the process exited before a result was submitted and its completion envelope was recorded, resume from that envelope in the owned workspace. The stage is prepared and run only when there is no prior attempt or the prior attempt is still `prepared`; any other incomplete observation fails closed (see below).
+
+Process exit status never implies acceptance; only Loop accepts a stage result.
+
+**Runner killed while the provider process was running.** If the Runner process itself is killed (for example `kill -9`) after it recorded `process_started` and before it recorded the process exit, the journal keeps `process_started` with no exit evidence, and the provider process is not stopped with the Runner. `run` and `resume` then fail closed with `PROCESS_FAILED: incomplete prior process observation requires operator evidence`, and `cancel` fails with `owned process identity is stale` once the process is gone. No stage is re-run and Loop's projection is unchanged. The operator exit is `abandon` followed by `cleanup`; see [Abandoning a stale attempt](#abandoning-a-stale-attempt).
+
 ## Abandoning a stale attempt
 
 If the Runner itself is killed (for example `kill -9`) after it recorded `process_started` and before it recorded the process exit, the journal holds an attempt with no exit evidence. `run` and `resume` then fail closed with `PROCESS_FAILED: incomplete prior process observation requires operator evidence`, and `cancel` fails with `owned process identity is stale` because there is no live process left to signal.

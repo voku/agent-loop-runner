@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Documentation
+
+- `docs/execution-model.md` gains an "Attention and recovery" section: `WAITING_FOR_ATTENTION` and exit code 16, the Attention id in stderr and `status` `authority.attention_id`, Attention being resolved by `agent-loop` and never by Runner, and what `run`/`resume` reconcile after an interruption. The README CLI reference links to it. No behavior change.
+
 ### Added
 
 - `agent-loop-runner abandon TASK --by <actor> --reason <text>` (voku/agent-loop-runner#45): explicit operator evidence that a recorded provider process no longer exists, for a Run wedged because the Runner was killed while a provider was running. A `process_started` attempt whose recorded identity is provably gone (pid absent or reused, and its process group empty) becomes `cancelled` with `abandoned_by`, `abandoned_reason` and `abandoned_at` in its process evidence, so the existing `cleanup` can retire it. A live, uninspectable or unrecorded identity, a different status, or an empty/oversized actor or reason is refused with the journal unchanged. It never starts a provider, submits a result or calls agent-loop, and a dirty worktree is still refused by `cleanup`. The runtime journal's process metadata allow-list gains only these three string fields.
