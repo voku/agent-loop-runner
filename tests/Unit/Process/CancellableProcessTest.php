@@ -55,15 +55,18 @@ final class CancellableProcessTest extends TestCase
 
     public function testPidThatNoLongerExistsIsStale(): void
     {
-        $process = proc_open([PHP_BINARY, '-r', 'exit(0);'], [], $pipes);
+        $process = proc_open([PHP_BINARY, '-r', 'sleep(30);'], [], $pipes);
         self::assertIsResource($process);
         $pid = proc_get_status($process)['pid'];
+        $fingerprint = ProcessIdentity::fingerprint($pid);
+        self::assertNotNull($fingerprint);
+        self::assertTrue(proc_terminate($process, SIGKILL));
         proc_close($process);
         self::assertFalse(posix_kill($pid, 0), 'fixture pid must be gone');
 
         self::assertSame(
             'owned process identity is stale.',
-            CancellableProcess::problem(['pid' => $pid, 'process_fingerprint' => 'sha256:whatever']),
+            CancellableProcess::problem(['pid' => $pid, 'process_fingerprint' => $fingerprint]),
         );
     }
 
