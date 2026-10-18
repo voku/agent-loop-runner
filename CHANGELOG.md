@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Documentation
+
+- `docs/execution-model.md` gains an "Attention and recovery" section: `WAITING_FOR_ATTENTION` and exit code 16, the Attention id in stderr and `status` `authority.attention_id`, Attention being resolved by `agent-loop` and never by Runner, and what `run`/`resume` reconcile after an interruption. The README CLI reference links to it. No behavior change.
+
 ### Added
 
 - `doctor TASK` adds an advisory, read-only `validation` object for the current stage: per declared validation command `ok`, `missing_worktree_dependency` (relative `vendor/` path not tracked in the Contract base commit), or `not_inspectable` (shell syntax is never parsed), plus a note that coverage of mandatory CI gates such as PHPStan is not checked and must be listed in the Contract. `doctor` without a task, exit codes, and stage execution are unchanged; no dependencies are provisioned. `docs/execution-model.md` documents that validation commands must run inside the worktree without undeclared dependencies.

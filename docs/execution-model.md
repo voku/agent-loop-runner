@@ -32,3 +32,23 @@ Every governed Run executes in an isolated Git worktree created from the Contrac
 Invariant: a Contract's validation commands must be executable inside that worktree without undeclared dependencies. A command that needs `vendor/bin/...` can only pass if the dependency is tracked or the Contract itself declares the step that provides it. List every mandatory gate, including PHPStan, in the Contract; Runner does not infer gates from CI configuration.
 
 `agent-loop-runner doctor TASK` gives an advisory, read-only check of the current stage's declared validation commands, read through `ExecutionGateway` against the Contract base commit. Each command is reported as `ok`, `missing_worktree_dependency` (with the relative `vendor/` path that is not tracked in the base commit), or `not_inspectable` (with a reason; commands that are not plain space-separated tokens are never parsed). The `validation` object always carries a note that coverage of mandatory CI gates is not checked. These are warnings only: they do not change exit codes, stage execution, or validation acceptance.
+
+## Attention and recovery
+
+**`WAITING_FOR_ATTENTION`.** When the freshly loaded `ExecutionProjection` carries an Attention, `run` and `resume` stop before any host invocation. They write `WAITING_FOR_ATTENTION: <attention-id>` to stderr and exit with code `16` (`ExitCode::WAITING_FOR_ATTENTION`). Runner starts no process and submits nothing while the Attention is open. The check runs on every reconciliation iteration, so an Attention raised mid-run also stops execution.
+
+**Where the id is visible.** The Attention id is in the stderr message above and in `agent-loop-runner status TASK` as `authority.attention_id` (`null` when there is no Attention). Both come from the Loop projection.
+
+**Who resolves it.** Attention is owned and resolved by `agent-loop` (`workflow attention --resolve`). Runner never resolves, clears, or works around an Attention; its journal label `waiting_for_attention` is only an observation. After Loop resolves the Attention, run `resume TASK` (or `run TASK`).
+
+**What `run`/`resume` do after an interruption.** Both take the per-task execution lock and enter the same reconciliation. It handles an Attention stop and a Runner restart after the provider process has exited:
+
+1. Reload the Loop projection. It wins over any old Runner-private journal state.
+2. Fail closed with `STALE_RUN` if the journal's Run, Contract revision, or plan digest differs from the projection. The message names `agent-loop-runner cleanup TASK` as the way forward.
+3. If the journal belongs to a stage or attempt Loop has already moved past, mark it `reconciled_accepted`; that stage is not re-run.
+4. If a stage result was persisted but not yet accepted, resubmit that result to Loop instead of invoking the host again; Loop decides whether to accept it.
+5. If the process exited before a result was submitted, resume from the recorded completion envelope in the owned workspace; otherwise the current authorized stage is prepared and run.
+
+Process exit status never implies acceptance; only Loop accepts a stage result.
+
+**Known limit: Runner killed while the provider process was running.** If the Runner process itself is killed (for example `kill -9`) after it recorded `process_started` and before it recorded the process exit, the journal keeps `process_started` with no exit evidence. The provider process is not stopped with the Runner and may still finish its edits in the worktree. In that state `run` and `resume` fail closed with `PROCESS_FAILED: incomplete prior process observation requires operator evidence`; `cancel` works only while the recorded process identity (pid and fingerprint) is still alive and otherwise fails with `owned process identity is stale`; `cleanup` fails with `STALE_WORKSPACE` because the evidence is unreconciled. No stage is re-run and Loop's projection is unchanged, but Runner currently offers no command that supplies the missing evidence. Tracked in agent-loop-runner#45.
