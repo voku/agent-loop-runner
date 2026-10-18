@@ -63,6 +63,29 @@ final class HostAdapterContractTest extends TestCase
         ];
     }
 
+    public function testClaudeAddsAcceptEditsOnlyForStagesThatMayMutate(): void
+    {
+        foreach ([false, true] as $mayMutate) {
+            $supervisor = new RecordingProcessSupervisor();
+            (new ClaudeHostAdapter($this->binary))->execute(new HostExecutionRequest(
+                'builder',
+                sys_get_temp_dir(),
+                'prompt',
+                [],
+                30,
+                mayMutate: $mayMutate,
+            ), $supervisor);
+
+            self::assertNotNull($supervisor->lastRequest);
+            self::assertSame(
+                $mayMutate
+                    ? [$this->binary, '--permission-mode', 'acceptEdits', '-p', 'prompt']
+                    : [$this->binary, '-p', 'prompt'],
+                $supervisor->lastRequest->argv,
+            );
+        }
+    }
+
     /** @param list<string> $expectedArgv */
     #[DataProvider('adapters')]
     public function testAdapterKeepsPromptAsProcessData(HostAdapter $template, array $expectedArgv, string $expectedStdin): void

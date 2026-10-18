@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Headless Claude Code builders can edit their isolated worktree: the `claude` adapter adds `--permission-mode acceptEdits` for stages Loop authorizes to mutate (`mayMutate`). Previously `claude -p` had no permission mode, every edit was refused and the stage came back `blocked`. Read-only stages are unchanged and no permission-bypass flag is introduced.
+
 ## [0.1.5] - 2026-09-26
 
 ### Added

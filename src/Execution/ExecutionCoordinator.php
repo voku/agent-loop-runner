@@ -242,6 +242,7 @@ final readonly class ExecutionCoordinator
                             new JournalProcessObserver($this->journal, $attempt),
                             $modelPolicy?->model,
                             $modelPolicy?->reasoningEffort,
+                            $bundle->mayMutate,
                         ),
                         $this->supervisor,
                     );

@@ -24,6 +24,8 @@ final readonly class HostExecutionRequest
     public ?string $model;
     /** @var non-empty-string|null */
     public ?string $reasoningEffort;
+    /** Loop's per-stage authority: the stage may modify its isolated workspace. */
+    public bool $mayMutate;
 
     /** @param array<string, string> $environment */
     public function __construct(
@@ -35,6 +37,7 @@ final readonly class HostExecutionRequest
         ProcessObserver $observer = new NullProcessObserver(),
         ?string $model = null,
         ?string $reasoningEffort = null,
+        bool $mayMutate = false,
     )
     {
         if ($roleId === '' || $workingDirectory === '' || $prompt === '' || $timeoutSeconds < 1) {
@@ -54,5 +57,6 @@ final readonly class HostExecutionRequest
         $this->observer = $observer;
         $this->model = $model;
         $this->reasoningEffort = $reasoningEffort;
+        $this->mayMutate = $mayMutate;
     }
 }

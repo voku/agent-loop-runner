@@ -176,7 +176,7 @@ reset time when available and the configuration needed to recover.
 The built-in adapters use the documented non-interactive entry points without permission-bypass flags:
 
 - Codex: `codex exec --ephemeral -` with the bounded stage prompt on stdin;
-- Claude Code: `claude -p <prompt>`;
+- Claude Code: `claude -p <prompt>`, plus `--permission-mode acceptEdits` only for stages Loop authorizes to mutate their isolated workspace (read-only stages keep the default mode);
 - OpenCode: `opencode run <prompt>`;
 - Antigravity: `agy --dangerously-skip-permissions -p <prompt>`.
 
