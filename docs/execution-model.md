@@ -66,3 +66,10 @@ If the Runner itself is killed (for example `kill -9`) after it recorded `proces
 On success the attempt keeps its Run, Contract revision, plan digest, stage, attempt and submission id, becomes `cancelled` with no stage result and no completion envelope, and its process evidence gains `abandoned_by`, `abandoned_reason` and `abandoned_at`. `abandon` never starts a provider, submits a result or talks to `agent-loop`; Loop's projection stays authoritative and unchanged.
 
 `abandon` is not the last step. `cleanup` then retires the record and the worktree **only if the worktree is clean**. A provider that outlived the Runner may have left edits behind; `cleanup` keeps refusing a dirty worktree (`Refusing to remove dirty Run workspace`), so inspect it (`git -C <worktree> status` and `diff`), keep or discard the changes yourself, then run `cleanup`. After `cleanup` the stage can be run again from a fresh attempt, with Loop's projection deciding which stage that is.
+
+## The `controls` projection is a snapshot
+
+`agent-loop-runner status TASK` reports `controls.run`, `controls.resume` and `controls.cancel`. They are read-only projections: `status` never signals a process, writes the journal or resolves anything. `controls.cancel` is `true` only when `cancel` could signal the recorded provider right now, using the same check `cancel` itself performs: the attempt is `process_started`, the recorded pid exists and still has the recorded fingerprint (so a vanished or reused pid does not count), the platform supports process groups, and the pid leads its own process group. Otherwise it is `false`, including when the identity cannot be inspected.
+
+The value is a snapshot, not a guarantee: the process can exit, or the Runner can start or stop, between reading `status` and acting on it, and `cancel` re-checks everything and fails closed. For a process that is already gone, `cancel` is not available; use [`abandon`](#abandoning-a-stale-attempt).
+

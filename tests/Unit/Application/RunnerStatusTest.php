@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use voku\AgentLoop\Execution\ExecutionProfileName;
 use voku\AgentLoop\Execution\ExecutionProjection;
 use voku\AgentLoopRunner\Application\RunnerStatus;
+use voku\AgentLoopRunner\Process\ProcessIdentity;
 use voku\AgentLoopRunner\Runtime\AttemptStatus;
 use voku\AgentLoopRunner\Runtime\RuntimeAttempt;
 
@@ -36,17 +37,35 @@ final class RunnerStatusTest extends TestCase
 
     public function testActiveProcessProjectsCancelInsteadOfAnotherExecution(): void
     {
-        $status = new RunnerStatus(
-            $this->authority(),
-            $this->observation(AttemptStatus::ProcessStarted, [
-                'pid' => 12345,
-                'process_fingerprint' => 'linux:12345:fixture',
-            ]),
-        );
+        if (!is_executable('/usr/bin/setsid')) {
+            self::markTestSkipped('setsid is required to start a process-group leader.');
+        }
+        // A real live process-group leader: cancel is only advertised for a process cancel() can signal.
+        $process = proc_open(['/usr/bin/setsid', 'sleep', '30'], [], $pipes);
+        self::assertIsResource($process);
+        try {
+            $pid = proc_get_status($process)['pid'];
+            for ($i = 0; $i < 50 && posix_getpgid($pid) !== $pid; ++$i) {
+                usleep(100_000);
+            }
+            $fingerprint = ProcessIdentity::fingerprint($pid);
+            self::assertNotNull($fingerprint);
 
-        self::assertFalse($status->allows(RunnerStatus::RUN));
-        self::assertFalse($status->allows(RunnerStatus::RESUME));
-        self::assertTrue($status->allows(RunnerStatus::CANCEL));
+            $status = new RunnerStatus(
+                $this->authority(),
+                $this->observation(AttemptStatus::ProcessStarted, [
+                    'pid' => $pid,
+                    'process_fingerprint' => $fingerprint,
+                ]),
+            );
+
+            self::assertFalse($status->allows(RunnerStatus::RUN));
+            self::assertFalse($status->allows(RunnerStatus::RESUME));
+            self::assertTrue($status->allows(RunnerStatus::CANCEL));
+        } finally {
+            proc_terminate($process, SIGKILL);
+            proc_close($process);
+        }
     }
 
     public function testCompleteAuthorityProjectsNoExecutionControls(): void
