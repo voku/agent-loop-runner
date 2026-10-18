@@ -68,7 +68,7 @@ vendor/bin/agent-loop-runner cleanup TASK-123
 
 | Command | Usage | Description |
 | --- | --- | --- |
-| `doctor` | `agent-loop-runner doctor` | Diagnose environment, Git worktree capability, and reachability of configured coding hosts. |
+| `doctor` | `agent-loop-runner doctor [TASK]` | Diagnose environment, Git worktree capability, and reachability of configured coding hosts. With `TASK`, also warn (advisory, read-only, exit code unchanged) when the current stage's validation commands reference `vendor/` paths the isolated worktree will not contain; validation commands must run inside the worktree without undeclared dependencies, see [execution model](docs/execution-model.md). |
 | `status` | `agent-loop-runner status TASK` | Inspect execution status, active Run bindings, workspace state, and stage attempts. |
 | `run` | `agent-loop-runner run TASK` | Execute only the currently authorized external stage in an isolated Git worktree. |
 | `resume` | `agent-loop-runner resume TASK` | Reconcile and resume an interrupted authorized external stage. |

@@ -24,3 +24,11 @@ This is deliberately a **process-level** claim. It proves that Runner did not
 satisfy an independent-review stage by continuing the predecessor stage inside
 the same supervised process attempt. It does not claim that a provider has no
 hidden account-global, server-side, cache, or model state.
+
+## Validation commands run inside the worktree
+
+Every governed Run executes in an isolated Git worktree created from the Contract base commit, so it contains tracked files only. Untracked, ignored, and generated directories of the user's checkout, notably `vendor/`, are not present, and Runner does not symlink, copy, or install them.
+
+Invariant: a Contract's validation commands must be executable inside that worktree without undeclared dependencies. A command that needs `vendor/bin/...` can only pass if the dependency is tracked or the Contract itself declares the step that provides it. List every mandatory gate, including PHPStan, in the Contract; Runner does not infer gates from CI configuration.
+
+`agent-loop-runner doctor TASK` gives an advisory, read-only check of the current stage's declared validation commands, read through `ExecutionGateway` against the Contract base commit. Each command is reported as `ok`, `missing_worktree_dependency` (with the relative `vendor/` path that is not tracked in the base commit), or `not_inspectable` (with a reason; commands that are not plain space-separated tokens are never parsed). The `validation` object always carries a note that coverage of mandatory CI gates is not checked. These are warnings only: they do not change exit codes, stage execution, or validation acceptance.
