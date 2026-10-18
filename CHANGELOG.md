@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `doctor` reports a `roles` object mapping every configured role to `<host-id>: available` or `<host-id>: unavailable`, using the same probe as the `host_<id>` keys, so roles whose host cannot run are visible before `run`. Existing keys and the exit code are unchanged.
+
 ### Fixed
 
 - Headless Claude Code builders can run the Contract's own validation: for stages with `mayMutate`, the `claude` adapter adds one exact `--allowedTools 'Bash(<command>)'` rule per `requiredValidation` command of the approved Contract, next to `acceptEdits`. No wildcard, no bypass mode, no persistent settings. A command that cannot be represented as plain tokens (wildcards, quotes, parentheses, separators, redirections, expansions, commas, double or edge spaces, leading `-`, over 500 characters) fails the stage closed with `PERMISSION_UNREPRESENTABLE` before a process starts. Read-only stages get no Bash rules.
