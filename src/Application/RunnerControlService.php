@@ -21,6 +21,7 @@ use voku\AgentLoopRunner\Host\HostAdapter;
 use voku\AgentLoopRunner\Host\OpenCodeHostAdapter;
 use voku\AgentLoopRunner\Process\EnvironmentProjector;
 use voku\AgentLoopRunner\Process\ForegroundProcessSupervisor;
+use voku\AgentLoopRunner\Process\CancellableProcess;
 use voku\AgentLoopRunner\Process\ProcessIdentity;
 use voku\AgentLoopRunner\Process\ProcessSupervisor;
 use voku\AgentLoopRunner\RunnerLayout;
@@ -97,21 +98,10 @@ final readonly class RunnerControlService
         }
 
         return $journal->cancel($attempt, static function (RuntimeAttempt $current): bool {
+            $problem = CancellableProcess::problem($current->process);
             $pid = $current->process['pid'] ?? null;
-            $fingerprint = $current->process['process_fingerprint'] ?? null;
-            if (!is_int($pid)
-                || !is_string($fingerprint)
-                || !hash_equals($fingerprint, ProcessIdentity::fingerprint($pid) ?? '')) {
-                throw new RuntimeException('PROCESS_FAILED: owned process identity is stale.');
-            }
-            if (PHP_OS_FAMILY === 'Windows'
-                || !function_exists('posix_kill')
-                || !function_exists('posix_getpgid')) {
-                throw new RuntimeException('PROCESS_FAILED: process-group cancellation is unavailable.');
-            }
-            $groupId = posix_getpgid($pid);
-            if (!is_int($groupId) || $groupId !== $pid) {
-                throw new RuntimeException('PROCESS_FAILED: owned process is not in an isolated process group.');
+            if ($problem !== null || !is_int($pid)) {
+                throw new RuntimeException('PROCESS_FAILED: ' . ($problem ?? 'owned process identity is stale.'));
             }
 
             return posix_kill(-$pid, defined('SIGTERM') ? SIGTERM : 15);

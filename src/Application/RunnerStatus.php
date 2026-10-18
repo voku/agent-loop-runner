@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace voku\AgentLoopRunner\Application;
 
 use voku\AgentLoop\Execution\ExecutionProjection;
+use voku\AgentLoopRunner\Process\CancellableProcess;
 use voku\AgentLoopRunner\Runtime\AttemptStatus;
 use voku\AgentLoopRunner\Runtime\RuntimeAttempt;
 
@@ -108,6 +109,6 @@ final readonly class RunnerStatus
             return false;
         }
 
-        return isset($this->observation->process['pid'], $this->observation->process['process_fingerprint']);
+        return CancellableProcess::problem($this->observation->process) === null;
     }
 }

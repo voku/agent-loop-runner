@@ -14,6 +14,7 @@
 
 ### Fixed
 
+- `status` no longer advertises `controls.cancel` for a process that `cancel` cannot signal (voku/agent-loop-runner#45). The projection only checked that `pid` and `process_fingerprint` were recorded, so a vanished or reused pid, or a process that is not its own process-group leader, still showed `cancel: true` and then failed with "owned process identity is stale". `status` and `cancel` now share one read-only check, `CancellableProcess`; `cancel` keeps its messages and exit codes, and `controls.cancel` remains a snapshot, not a guarantee.
 - Headless Claude Code builders can run the Contract's own validation: for stages with `mayMutate`, the `claude` adapter adds one exact `--allowedTools 'Bash(<command>)'` rule per `requiredValidation` command of the approved Contract, next to `acceptEdits`. No wildcard, no bypass mode, no persistent settings. A command that cannot be represented as plain tokens (wildcards, quotes, parentheses, separators, redirections, expansions, commas, double or edge spaces, leading `-`, over 500 characters) fails the stage closed with `PERMISSION_UNREPRESENTABLE` before a process starts. Read-only stages get no Bash rules.
 - Headless Claude Code builders can edit their isolated worktree: the `claude` adapter adds `--permission-mode acceptEdits` for stages Loop authorizes to mutate (`mayMutate`). Previously `claude -p` had no permission mode, every edit was refused and the stage came back `blocked`. Read-only stages are unchanged and no permission-bypass flag is introduced.
 
