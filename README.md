@@ -176,7 +176,7 @@ reset time when available and the configuration needed to recover.
 The built-in adapters use the documented non-interactive entry points without permission-bypass flags:
 
 - Codex: `codex exec --ephemeral -` with the bounded stage prompt on stdin;
-- Claude Code: `claude -p <prompt>`, plus `--permission-mode acceptEdits` only for stages Loop authorizes to mutate their isolated workspace (read-only stages keep the default mode);
+- Claude Code: `claude -p <prompt>`. For stages Loop authorizes to mutate their isolated workspace it also passes `--permission-mode acceptEdits` and one exact `--allowedTools 'Bash(<command>)'` rule per validation command of the approved Contract (Loop's `requiredValidation`): no wildcard, no bypass flag, nothing persisted. A validation command that is not made of plain single-space separated tokens cannot be granted safely, so the stage fails closed with `PERMISSION_UNREPRESENTABLE` before any process starts. Read-only stages keep the default mode and receive no Bash rules;
 - OpenCode: `opencode run <prompt>`;
 - Antigravity: `agy --dangerously-skip-permissions -p <prompt>`.
 
