@@ -31,5 +31,6 @@ interface ExecutionGatewayPort
 
     public function submitStageResult(StageResult $result): ExecutionProjection;
 
-    public function runDeterministicStage(string $taskId, string $stageId): ExecutionProjection;
+    /** @param string|null $candidateWorkspace where the governed candidate lives (the Run worktree); Loop verifies it holds that candidate */
+    public function runDeterministicStage(string $taskId, string $stageId, ?string $candidateWorkspace = null): ExecutionProjection;
 }
