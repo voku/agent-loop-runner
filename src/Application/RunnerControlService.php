@@ -118,6 +118,66 @@ final readonly class RunnerControlService
         });
     }
 
+    /**
+     * Operator evidence that a recorded provider process no longer exists (for example after the Runner itself
+     * was killed). Moves the stale `process_started` attempt to the terminal Cancelled status so `cleanup` can
+     * retire it. It never starts a provider, never submits a result and never talks to agent-loop.
+     */
+    public function abandon(string $taskId, string $by, string $reason): RuntimeAttempt
+    {
+        $layout = new RunnerLayout($this->projectRoot);
+        $lock = RunExecutionLock::acquire($layout, $taskId);
+        try {
+            $journal = new RuntimeJournal($layout);
+            $attempt = $journal->load($taskId);
+            if ($attempt === null || $attempt->status !== AttemptStatus::ProcessStarted) {
+                throw new RuntimeException('PROCESS_FAILED: no owned active process is recorded.');
+            }
+
+            return $journal->abandon($attempt, $by, $reason, self::recordedProcessIsProvablyGone(...));
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * True only when the recorded identity is provably gone: the pid no longer exists, or it now belongs to a
+     * process with a different fingerprint (pid reuse), and nothing is left in the provider's process group
+     * (the provider runs as its own group leader, so a child may outlive it). Anything that cannot be
+     * inspected fails closed.
+     */
+    private static function recordedProcessIsProvablyGone(RuntimeAttempt $current): bool
+    {
+        $pid = $current->process['pid'] ?? null;
+        $fingerprint = $current->process['process_fingerprint'] ?? null;
+        if (!is_int($pid) || !is_string($fingerprint)) {
+            throw new RuntimeException('PROCESS_FAILED: recorded process identity is incomplete; cannot prove it is gone.');
+        }
+        if (PHP_OS_FAMILY === 'Windows' || !function_exists('posix_kill') || !function_exists('posix_get_last_error')) {
+            throw new RuntimeException('PROCESS_FAILED: process inspection is unavailable on this platform.');
+        }
+        if (self::signalZeroReachesSomething($pid)) {
+            $observed = ProcessIdentity::fingerprint($pid);
+            if ($observed === null) {
+                throw new RuntimeException('PROCESS_FAILED: pid exists but its identity cannot be inspected; cannot prove it is gone.');
+            }
+            if (hash_equals($fingerprint, $observed)) {
+                return false;
+            }
+        }
+        if (self::signalZeroReachesSomething(-$pid)) {
+            throw new RuntimeException('PROCESS_FAILED: the recorded process group still has live members; stop them first (cancel only works while the group leader is alive).');
+        }
+
+        return true;
+    }
+
+    /** Signal 0 only probes: EPERM still means "something is there". */
+    private static function signalZeroReachesSomething(int $target): bool
+    {
+        return posix_kill($target, 0) || posix_get_last_error() === 1;
+    }
+
     public function cleanup(string $taskId): void
     {
         $layout = new RunnerLayout($this->projectRoot);
