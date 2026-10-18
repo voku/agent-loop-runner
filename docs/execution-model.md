@@ -35,7 +35,7 @@ Invariant: a Contract's validation commands must be executable inside that workt
 
 ## Attention and recovery
 
-**`WAITING_FOR_ATTENTION`.** When the freshly loaded `ExecutionProjection` carries an Attention, `run` and `resume` stop before any host invocation. They write `WAITING_FOR_ATTENTION: <attention-id>` to stderr and exit with code `16` (`ExitCode::WAITING_FOR_ATTENTION`). Runner starts no process and submits nothing while the Attention is open. The check runs on every reconciliation iteration, so an Attention raised mid-run also stops execution.
+**`WAITING_FOR_ATTENTION`.** When the freshly loaded `ExecutionProjection` carries an Attention, `run` and `resume` stop before any host invocation. They write `WAITING_FOR_ATTENTION: <attention-id>` to stderr and exit with code `16` (`ExitCode::WAITING_FOR_ATTENTION`). When an Attention is already open, Runner starts no process. The check runs once per reconciliation iteration, before any host invocation, and nothing interrupts a provider process that is already running: if an Attention is raised during an active invocation, that invocation finishes, Runner then attempts to submit its result, and Loop rejects a new submission while an Attention is open (`Execution is waiting for Attention <id>`). The next `run`/`resume` stops at the check above.
 
 **Where the id is visible.** The Attention id is in the stderr message above and in `agent-loop-runner status TASK` as `authority.attention_id` (`null` when there is no Attention). Both come from the Loop projection.
 
@@ -47,7 +47,7 @@ Invariant: a Contract's validation commands must be executable inside that workt
 2. Fail closed with `STALE_RUN` if the journal's Run, Contract revision, or plan digest differs from the projection. The message names `agent-loop-runner cleanup TASK` as the way forward.
 3. If the journal belongs to a stage or attempt Loop has already moved past, mark it `reconciled_accepted`; that stage is not re-run.
 4. If a stage result was persisted but not yet accepted, resubmit that result to Loop instead of invoking the host again; Loop decides whether to accept it.
-5. If the process exited before a result was submitted, resume from the recorded completion envelope in the owned workspace; otherwise the current authorized stage is prepared and run.
+5. If the process exited before a result was submitted and its completion envelope was recorded, resume from that envelope in the owned workspace. The stage is prepared and run only when there is no prior attempt or the prior attempt is still `prepared`; any other incomplete observation fails closed (see below).
 
 Process exit status never implies acceptance; only Loop accepts a stage result.
 
