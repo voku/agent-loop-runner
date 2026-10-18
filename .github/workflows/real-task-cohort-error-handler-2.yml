@@ -58,7 +58,7 @@ jobs:
           printf 'host=%s\n' "$host" >> "$GITHUB_OUTPUT"
 
       - name: Check out exact target revision
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: voku/error-handler-lib
           ref: 187516f6340283911a3cc1b4d6fc3d163cebce9e
