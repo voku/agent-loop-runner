@@ -55,10 +55,17 @@ final readonly class RunnerApplication
             'git' => $this->gitVersion($supervisor),
             'execution_gateway' => class_exists(ExecutionGateway::class) ? 'available' : 'missing',
         ];
+        $hostAvailable = [];
         foreach ($this->hosts($config) as $id => $host) {
             $availability = $host->probe($supervisor, $this->projectRoot, $environment);
+            $hostAvailable[$id] = $availability->available();
             $checks['host_' . $id] = $availability->available() ? ($availability->version ?? 'available') : 'unavailable';
         }
+        $roles = [];
+        foreach ($config->roles as $roleId => $hostId) {
+            $roles[$roleId] = $hostId . ': ' . (($hostAvailable[$hostId] ?? false) ? 'available' : 'unavailable');
+        }
+        $checks['roles'] = $roles;
         $this->json($checks);
 
         return in_array('missing', $checks, true) ? ExitCode::TRANSITION_REJECTED : ExitCode::OK;
