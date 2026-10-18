@@ -71,10 +71,13 @@ final class RunnerDoctorRolesTest extends TestCase
         self::assertJson($stdout, 'stdout: ' . $stdout . ' stderr: ' . $stderr);
 
         $data = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($data);
         self::assertSame(0, $exit);
-        self::assertSame('unavailable', $data['host_codex']);
-        self::assertSame('codex: unavailable', $data['roles']['builder']);
-        self::assertSame('claude: available', $data['roles']['reviewer']);
+        self::assertSame('unavailable', $data['host_codex'] ?? null);
+        $roles = $data['roles'] ?? null;
+        self::assertIsArray($roles);
+        self::assertSame('codex: unavailable', $roles['builder'] ?? null);
+        self::assertSame('claude: available', $roles['reviewer'] ?? null);
         self::assertArrayHasKey('php', $data);
         self::assertArrayHasKey('execution_gateway', $data);
     }
