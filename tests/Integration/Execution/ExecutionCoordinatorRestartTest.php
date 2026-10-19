@@ -369,7 +369,7 @@ final class FakeGateway implements ExecutionGatewayPort
         return $this->projection($result->taskId);
     }
 
-    public function runDeterministicStage(string $taskId, string $stageId): ExecutionProjection
+    public function runDeterministicStage(string $taskId, string $stageId, ?string $candidateWorkspace = null): ExecutionProjection
     {
         throw new RuntimeException('not expected');
     }

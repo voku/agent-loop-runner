@@ -78,7 +78,7 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
             '--by', 'owner',
             '--file', 'src/Foo.php',
             '--goal', 'Prove runner orchestration.',
-            '--validation', 'composer ci',
+            '--validation', 'php -l src/Foo.php',
             '--base-commit', $this->base,
         ]));
         self::assertSame(0, (new WorkflowApproveCommand($this->root))->run(['TASK-1', '--by', 'owner']));
@@ -136,7 +136,7 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
             '--by', 'owner',
             '--file', 'src/Foo.php',
             '--goal', 'Prove fresh context through the real Codex process adapter.',
-            '--validation', 'composer ci',
+            '--validation', 'php -l src/Foo.php',
             '--base-commit', $this->base,
         ]));
         self::assertSame(0, (new WorkflowApproveCommand($this->root))->run([$taskId, '--by', 'owner']));
@@ -231,7 +231,7 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
             '--by', 'owner',
             '--file', 'src/Foo.php',
             '--goal', 'Prove the runner receives the final governed L1.',
-            '--validation', 'composer ci',
+            '--validation', 'php -l src/Foo.php',
             '--base-commit', $this->base,
             '--operating-prompt-manifest', 'operating-prompts.json',
             '--operating-prompt', '{"id":"test-l2","arguments":{}}',

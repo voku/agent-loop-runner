@@ -51,8 +51,8 @@ final readonly class AgentLoopExecutionGateway implements ExecutionGatewayPort
         return $this->gateway->submitStageResult($result);
     }
 
-    public function runDeterministicStage(string $taskId, string $stageId): ExecutionProjection
+    public function runDeterministicStage(string $taskId, string $stageId, ?string $candidateWorkspace = null): ExecutionProjection
     {
-        return $this->gateway->runDeterministicStage($taskId, $stageId);
+        return $this->gateway->runDeterministicStage($taskId, $stageId, $candidateWorkspace);
     }
 }

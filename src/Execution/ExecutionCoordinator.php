@@ -112,7 +112,20 @@ final readonly class ExecutionCoordinator
 
             $bundle = $this->gateway->prepareStage($taskId, $stageId);
             if ($bundle->kind === ExecutionStageKind::DETERMINISTIC) {
-                $this->gateway->runDeterministicStage($taskId, $stageId);
+                if ($bundle->baseCommit === null) {
+                    throw new RuntimeException('TRANSITION_REJECTED: deterministic stage bundle has no governed base commit.');
+                }
+                // Loop validates the governed candidate where it lives: the Run worktree, never the user's checkout.
+                $verifyWorkspace = $this->workspaces->acquire(
+                    $bundle->taskId,
+                    $bundle->runId,
+                    $bundle->baseCommit,
+                    $bundle->stageId,
+                    $bundle->attempt,
+                    false,
+                    $bundle->candidateRevision,
+                );
+                $this->gateway->runDeterministicStage($taskId, $stageId, $verifyWorkspace->lease->path);
                 continue;
             }
             $baseCommit = $bundle->baseCommit;

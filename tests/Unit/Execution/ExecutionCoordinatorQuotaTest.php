@@ -337,7 +337,7 @@ final class QuotaFakeGateway implements ExecutionGatewayPort
         return 'execution-evidence:sha256:' . hash('sha256', $observation->sourceReference . "\0" . $observation->sourceDigest);
     }
 
-    public function runDeterministicStage(string $taskId, string $stageId): ExecutionProjection
+    public function runDeterministicStage(string $taskId, string $stageId, ?string $candidateWorkspace = null): ExecutionProjection
     {
         throw new RuntimeException('unexpected deterministic stage');
     }
