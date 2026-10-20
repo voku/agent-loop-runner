@@ -130,6 +130,25 @@ final class WorkspaceArtifactObserverTest extends TestCase
         self::assertSame('sha256:' . hash('sha256', "<?php\n// fixture\n"), $observation->sourceDigest);
     }
 
+    public function testDeletedFileEvidenceIgnoresReplacementRefsForTheGovernedBase(): void
+    {
+        file_put_contents($this->root . '/src/Example.php', "<?php\n// replacement\n");
+        $this->git('add', 'src/Example.php');
+        $this->git('commit', '-qm', 'replacement content');
+        $replacementCommit = $this->git('rev-parse', 'HEAD');
+        $this->git('replace', $this->baseCommit, $replacementCommit);
+        unlink($this->root . '/src/Example.php');
+
+        $observation = (new WorkspaceArtifactObserver())->observe(
+            $this->bundle(),
+            $this->root,
+            'git-tree-v1:' . $this->baseCommit . ':' . str_repeat('c', 40),
+            ['deleted-file:src/Example.php'],
+        )[0];
+
+        self::assertSame('sha256:' . hash('sha256', "<?php\n// fixture\n"), $observation->sourceDigest);
+    }
+
     public function testDeletedFileEvidenceRejectsAStillExistingModifiedFile(): void
     {
         file_put_contents($this->root . '/src/Example.php', "<?php\n// changed\n");

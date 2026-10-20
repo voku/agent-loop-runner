@@ -106,7 +106,7 @@ final readonly class WorkspaceArtifactObserver
             throw new RuntimeException('INVALID_STAGE_RESULT: deleted-file evidence base commit is not exact.');
         }
         $process = proc_open(
-            ['git', 'cat-file', 'blob', $baseCommit . ':' . $relativePath],
+            ['git', '--no-replace-objects', 'cat-file', 'blob', $baseCommit . ':' . $relativePath],
             [
                 0 => ['pipe', 'r'],
                 1 => ['pipe', 'w'],
