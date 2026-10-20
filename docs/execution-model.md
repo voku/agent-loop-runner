@@ -44,6 +44,29 @@ The builder may run these exact commands (they are its only Bash permissions), a
 
 `agent-loop-runner doctor TASK` gives an advisory, read-only check of the current stage's declared validation commands, read through `ExecutionGateway` against the Contract base commit. Each command is reported as `ok`, `missing_worktree_dependency` (with the relative `vendor/` path that is not tracked in the base commit), or `not_inspectable` (with a reason; commands that are not plain space-separated tokens are never parsed). The `validation` object always carries a note that coverage of mandatory CI gates is not checked. These are warnings only: they do not change exit codes, stage execution, or validation acceptance. Each command is inspected on its own against the base commit, so a `vendor/` path is still reported as `missing_worktree_dependency` when an earlier declared command, such as `composer install`, provides it.
 
+## Adopting a completed candidate
+
+When `agent-loop-runner status TASK` reports `authority.complete: true`, the governed candidate exists only as uncommitted changes in the Run worktree below `.agent-loop-runner/worktrees/` (`git worktree list` shows the path). Runner never commits, pushes, or copies it into your checkout, and `cleanup` refuses a worktree with changes (`Refusing to remove dirty Run workspace`, exit code `70`). Adopt the candidate first, from a clean checkout of the Contract base commit:
+
+```bash
+WT=.agent-loop-runner/worktrees/<run-directory>
+BASE=<contract base commit>
+
+# 1. Copy the candidate, including new and deleted files, into your checkout.
+git -C "$WT" add -A
+git -C "$WT" diff --cached --binary "$BASE" | git apply --index
+
+# 2. Close the governed task in your checkout. finish runs the Contract's
+#    validation commands here, then routes review and Learning.
+vendor/bin/agent-loop finish TASK --format=json
+
+# 3. Discard the worktree copy and remove the Run workspace.
+git -C "$WT" reset -q --hard
+vendor/bin/agent-loop-runner cleanup TASK
+```
+
+Ignored files are not part of the candidate. Neither `git add -A` nor the candidate identity includes them, and `reset --hard` leaves an ignored `vendor/` in place; `cleanup` then removes the worktree. To prove that your checkout holds exactly the governed candidate, compare `git write-tree` after step 1 with the tree part of `authority.candidate_revision` (`git-tree-v1:<base>:<tree>`). Because `finish` validates your checkout, its first declared validation command (for example `composer install`) prepares your checkout as well.
+
 ## Attention and recovery
 
 **`WAITING_FOR_ATTENTION`.** When the freshly loaded `ExecutionProjection` carries an Attention, `run` and `resume` stop before any host invocation. They write `WAITING_FOR_ATTENTION: <attention-id>` to stderr and exit with code `16` (`ExitCode::WAITING_FOR_ATTENTION`). When an Attention is already open, Runner starts no process. The check runs once per reconciliation iteration, before any host invocation, and nothing interrupts a provider process that is already running: if an Attention is raised during an active invocation, that invocation finishes, Runner then attempts to submit its result, and Loop rejects a new submission while an Attention is open (`Execution is waiting for Attention <id>`). The next `run`/`resume` stops at the check above.
