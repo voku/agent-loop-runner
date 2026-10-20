@@ -19,12 +19,19 @@ use voku\AgentLoopRunner\Workspace\WorkspaceArtifactObserver;
 final class WorkspaceArtifactObserverTest extends TestCase
 {
     private string $root;
+    private string $baseCommit;
 
     protected function setUp(): void
     {
         $this->root = sys_get_temp_dir() . '/agent-loop-runner-artifacts-' . bin2hex(random_bytes(6));
         mkdir($this->root . '/src', 0o700, true);
         file_put_contents($this->root . '/src/Example.php', "<?php\n// fixture\n");
+        $this->git('init', '-q');
+        $this->git('config', 'user.email', 'runner-test@example.invalid');
+        $this->git('config', 'user.name', 'Runner Test');
+        $this->git('add', '.');
+        $this->git('commit', '-qm', 'base');
+        $this->baseCommit = $this->git('rev-parse', 'HEAD');
     }
 
     protected function tearDown(): void
@@ -108,6 +115,66 @@ final class WorkspaceArtifactObserverTest extends TestCase
         $this->observeReferences('../outside.php:1');
     }
 
+    public function testDeletedFileEvidenceIsBoundToTheBaseBlob(): void
+    {
+        unlink($this->root . '/src/Example.php');
+
+        $observation = (new WorkspaceArtifactObserver())->observe(
+            $this->bundle(),
+            $this->root,
+            'git-tree-v1:' . $this->baseCommit . ':' . str_repeat('c', 40),
+            ['deleted-file:src/Example.php'],
+        )[0];
+
+        self::assertSame('git-base-file:src/Example.php', $observation->sourceReference);
+        self::assertSame('sha256:' . hash('sha256', "<?php\n// fixture\n"), $observation->sourceDigest);
+    }
+
+    public function testDeletedFileEvidenceIgnoresReplacementRefsForTheGovernedBase(): void
+    {
+        file_put_contents($this->root . '/src/Example.php', "<?php\n// replacement\n");
+        $this->git('add', 'src/Example.php');
+        $this->git('commit', '-qm', 'replacement content');
+        $replacementCommit = $this->git('rev-parse', 'HEAD');
+        $this->git('replace', $this->baseCommit, $replacementCommit);
+        unlink($this->root . '/src/Example.php');
+
+        $observation = (new WorkspaceArtifactObserver())->observe(
+            $this->bundle(),
+            $this->root,
+            'git-tree-v1:' . $this->baseCommit . ':' . str_repeat('c', 40),
+            ['deleted-file:src/Example.php'],
+        )[0];
+
+        self::assertSame('sha256:' . hash('sha256', "<?php\n// fixture\n"), $observation->sourceDigest);
+    }
+
+    public function testDeletedFileEvidenceRejectsAStillExistingModifiedFile(): void
+    {
+        file_put_contents($this->root . '/src/Example.php', "<?php\n// changed\n");
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('deleted-file evidence still exists in the candidate workspace');
+        (new WorkspaceArtifactObserver())->observe(
+            $this->bundle(),
+            $this->root,
+            'git-tree-v1:' . $this->baseCommit . ':' . str_repeat('c', 40),
+            ['deleted-file:src/Example.php'],
+        );
+    }
+
+    public function testDeletedFileEvidenceRejectsAPathAbsentFromTheBaseCommit(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('deleted-file path is not present in the governed base');
+        (new WorkspaceArtifactObserver())->observe(
+            $this->bundle(),
+            $this->root,
+            'git-tree-v1:' . $this->baseCommit . ':' . str_repeat('c', 40),
+            ['deleted-file:src/New.php'],
+        );
+    }
+
     public function testDoesNotStripAColonThatIsPartOfTheRealFilename(): void
     {
         // The literal path always wins, so a file that genuinely contains a
@@ -118,6 +185,17 @@ final class WorkspaceArtifactObserverTest extends TestCase
             ['workspace-file:src/odd:12'],
             $this->observeReferences('src/odd:12'),
         );
+    }
+
+    /** @param string ...$arguments */
+    private function git(string ...$arguments): string
+    {
+        exec('git -C ' . escapeshellarg($this->root) . ' ' . implode(' ', array_map('escapeshellarg', $arguments)) . ' 2>&1', $output, $exit);
+        if ($exit !== 0) {
+            throw new RuntimeException('git ' . implode(' ', $arguments) . ' failed: ' . implode("\n", $output));
+        }
+
+        return trim(implode("\n", $output));
     }
 
     private function bundle(): StageExecutionBundle
@@ -133,7 +211,7 @@ final class WorkspaceArtifactObserverTest extends TestCase
             null,
             false,
             $this->root,
-            null,
+            $this->baseCommit,
             'sha256:' . str_repeat('b', 64),
             ['path' => 'contract.json', 'sha256' => 'sha256:contract'],
             null,
