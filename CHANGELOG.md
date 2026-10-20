@@ -4,6 +4,10 @@
 
 ## [0.1.7] - 2026-10-20
 
+### Fixed
+
+- A stage result can now cite a file the candidate deleted as evidence: the reference `deleted-file:<path>` is accepted only when the path no longer exists in the candidate workspace and does exist in the governed base commit, and is recorded as a `git-base-file:<path>` observation with the SHA-256 of the base blob. A still-present path, a missing governed base, or a path absent from the base is refused with `INVALID_STAGE_RESULT` (#62).
+
 ### Documentation
 
 - `docs/execution-model.md` shows how a Contract declares worktree dependency preparation: list the step that provides dependencies (for example `composer install --no-interaction --no-progress`) as the first validation command. The builder may run it, and the deterministic `verify` stage runs it again in the Run worktree only; a gitignored `vendor/` does not change the candidate identity and the user's checkout is never prepared. Without the step, a `vendor/bin` command exits 127 and the Run stops at Attention. `doctor` inspects each command on its own and still reports `missing_worktree_dependency` for a path an earlier declared command provides (#61).
