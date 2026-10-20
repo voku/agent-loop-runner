@@ -31,7 +31,18 @@ Every governed Run executes in an isolated Git worktree created from the Contrac
 
 Invariant: a Contract's validation commands must be executable inside that worktree without undeclared dependencies. A command that needs `vendor/bin/...` can only pass if the dependency is tracked or the Contract itself declares the step that provides it. List every mandatory gate, including PHPStan, in the Contract; Runner does not infer gates from CI configuration.
 
-`agent-loop-runner doctor TASK` gives an advisory, read-only check of the current stage's declared validation commands, read through `ExecutionGateway` against the Contract base commit. Each command is reported as `ok`, `missing_worktree_dependency` (with the relative `vendor/` path that is not tracked in the base commit), or `not_inspectable` (with a reason; commands that are not plain space-separated tokens are never parsed). The `validation` object always carries a note that coverage of mandatory CI gates is not checked. These are warnings only: they do not change exit codes, stage execution, or validation acceptance.
+Declare the preparation as the first validation command, so it is explicit, recorded and executed in the same worktree:
+
+```bash
+agent-loop workflow plan TASK ... \
+  --validation "composer install --no-interaction --no-progress" \
+  --validation "vendor/bin/phpunit tests/Unit/SomeTest.php" \
+  --validation "vendor/bin/phpstan analyse --configuration=phpstan.neon.dist --memory-limit=512M --no-progress"
+```
+
+The builder may run these exact commands (they are its only Bash permissions), and the deterministic `verify` stage runs them again, in order, in the Run worktree that holds the candidate. A gitignored `vendor/` created there does not change the candidate identity, and the user's checkout is never prepared. Without the declared step, `vendor/bin/...` fails in the worktree (exit 127) and the Run stops at Attention instead of completing. The preparation needs whatever the command itself needs, for example network or a Composer cache.
+
+`agent-loop-runner doctor TASK` gives an advisory, read-only check of the current stage's declared validation commands, read through `ExecutionGateway` against the Contract base commit. Each command is reported as `ok`, `missing_worktree_dependency` (with the relative `vendor/` path that is not tracked in the base commit), or `not_inspectable` (with a reason; commands that are not plain space-separated tokens are never parsed). The `validation` object always carries a note that coverage of mandatory CI gates is not checked. These are warnings only: they do not change exit codes, stage execution, or validation acceptance. Each command is inspected on its own against the base commit, so a `vendor/` path is still reported as `missing_worktree_dependency` when an earlier declared command, such as `composer install`, provides it.
 
 ## Attention and recovery
 
