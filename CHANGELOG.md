@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Removed
+
+- Public method `voku\AgentLoopRunner\Workspace\WorkspaceLease::toArray()`, which had no caller in Runner or its consumers.
+
 ## [0.1.7] - 2026-10-20
 
 ### Fixed
