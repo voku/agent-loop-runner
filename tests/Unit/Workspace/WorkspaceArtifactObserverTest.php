@@ -187,7 +187,7 @@ final class WorkspaceArtifactObserverTest extends TestCase
         );
     }
 
-    /** @param non-empty-string ...$arguments */
+    /** @param string ...$arguments */
     private function git(string ...$arguments): string
     {
         exec('git -C ' . escapeshellarg($this->root) . ' ' . implode(' ', array_map('escapeshellarg', $arguments)) . ' 2>&1', $output, $exit);
