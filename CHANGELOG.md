@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-10-20
+
+### Documentation
+
+- `docs/execution-model.md` shows how a Contract declares worktree dependency preparation: list the step that provides dependencies (for example `composer install --no-interaction --no-progress`) as the first validation command. The builder may run it, and the deterministic `verify` stage runs it again in the Run worktree only; a gitignored `vendor/` does not change the candidate identity and the user's checkout is never prepared. Without the step, a `vendor/bin` command exits 127 and the Run stops at Attention. `doctor` inspects each command on its own and still reports `missing_worktree_dependency` for a path an earlier declared command provides (#61).
+
+### Changed
+
+- Require released `voku/agent-loop ^0.20.67`, whose review stages are told that the deterministic `verify` stage executes the Contract's required validation on the exact candidate, so a reviewer without validation permission no longer stops a correct Run at Attention for that alone (voku/agent-loop#813). Refresh the locked dependency graph accordingly.
+
 ## [0.1.6] - 2026-10-19
 
 ### Documentation
