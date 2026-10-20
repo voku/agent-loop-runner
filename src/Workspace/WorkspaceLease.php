@@ -27,18 +27,4 @@ final readonly class WorkspaceLease
             throw new InvalidArgumentException('Workspace lease requires an exact Git base commit.');
         }
     }
-
-    /** @return array<string, int|string|bool> */
-    public function toArray(): array
-    {
-        return [
-            'task_id' => $this->taskId,
-            'run_id' => $this->runId,
-            'path' => $this->path,
-            'base_commit' => $this->baseCommit,
-            'owner_stage_id' => $this->ownerStageId,
-            'attempt' => $this->attempt,
-            'may_mutate' => $this->mayMutate,
-        ];
-    }
 }
