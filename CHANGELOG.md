@@ -6,6 +6,10 @@
 
 - Public method `voku\AgentLoopRunner\Workspace\WorkspaceLease::toArray()`, which had no caller in Runner or its consumers.
 
+### Documentation
+
+- `docs/execution-model.md` gains "Adopting a completed candidate", and README quick-start step 5 points to it. After `complete: true` the candidate exists only as uncommitted changes in the Run worktree, and `cleanup` refuses a worktree with changes (exit code `70`), so the documented quick start could not finish. The section gives the exact handoff: copy the candidate into a clean checkout of the base with `git add -A` plus `git diff --cached --binary <base> | git apply --index`, run `agent-loop finish` there, then reset the worktree and run `cleanup`. It also shows how to confirm that the checkout holds the governed candidate tree. Found in a real governed Runner dogfood (voku/agent-loop-runner#65); no behavior change.
+
 ## [0.1.7] - 2026-10-20
 
 ### Fixed

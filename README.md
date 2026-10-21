@@ -61,7 +61,10 @@ vendor/bin/agent-loop-runner run TASK-123
 vendor/bin/agent-loop-runner resume TASK-123
 vendor/bin/agent-loop-runner cancel TASK-123
 
-# 5. Clean up the isolated run workspace once reconciled
+# 5. After complete: true, adopt the candidate from the Run worktree into your
+#    checkout and run `agent-loop finish TASK-123` there, then discard the
+#    worktree copy and clean up (cleanup refuses a worktree with changes; see
+#    docs/execution-model.md#adopting-a-completed-candidate)
 vendor/bin/agent-loop-runner cleanup TASK-123
 ```
 
