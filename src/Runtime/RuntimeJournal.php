@@ -35,7 +35,7 @@ final readonly class RuntimeJournal
                     $attempt->attempt,
                 )
                 && $attempt->status !== AttemptStatus::Cancelled) {
-                throw new RuntimeException('PROCESS_FAILED: cancelled runtime attempt cannot be overwritten.');
+                throw new RuntimeException('PROCESS_CANCELLED: provider attempt was cancelled before its result was recorded.');
             }
             $this->writePath($path, $attempt);
         });

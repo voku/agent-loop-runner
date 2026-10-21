@@ -260,6 +260,7 @@ final readonly class ExecutionCoordinator
                         ),
                         $this->supervisor,
                     );
+                    $this->throwIfCancelled($attempt);
                     if ($result->process->startedAt === '' || $result->process->finishedAt === '') {
                         throw new RuntimeException('PROCESS_FAILED: process evidence is incomplete.');
                     }
@@ -520,6 +521,23 @@ final readonly class ExecutionCoordinator
         }
 
         return 'runner-context:sha256:' . hash('sha256', implode("\0", $identity));
+    }
+
+    private function throwIfCancelled(RuntimeAttempt $attempt): void
+    {
+        $current = $this->journal->load($attempt->taskId);
+        if ($current !== null
+            && $current->status === AttemptStatus::Cancelled
+            && $current->sameAuthority(
+                $attempt->runId,
+                $attempt->contractRevision,
+                $attempt->executionPlanDigest,
+                $attempt->stageId,
+                $attempt->attempt,
+            )
+            && hash_equals($current->submissionId, $attempt->submissionId)) {
+            throw new RuntimeException('PROCESS_CANCELLED: provider attempt was cancelled while it was running.');
+        }
     }
 
     private function submissionId(string $task, string $run, string $stage, int $attempt): string
