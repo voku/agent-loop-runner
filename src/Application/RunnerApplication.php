@@ -260,6 +260,7 @@ final readonly class RunnerApplication
             'STALE_' => ExitCode::STALE_STATE,
             'TRANSITION_REJECTED' => ExitCode::TRANSITION_REJECTED,
             'WAITING_FOR_ATTENTION' => ExitCode::WAITING_FOR_ATTENTION,
+            'PROCESS_CANCELLED' => ExitCode::PROCESS_CANCELLED,
         ] as $prefix => $code) {
             if (str_contains($message, $prefix)) {
                 return $code;

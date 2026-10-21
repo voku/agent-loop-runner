@@ -184,6 +184,24 @@ final class ExecutionCoordinatorRestartTest extends TestCase
         self::assertSame(0, $gateway->environmentPreparations);
     }
 
+    public function testCancellationDuringProviderExecutionIsReportedAndNeverAccepted(): void
+    {
+        $gateway = new FakeGateway($this->root, $this->base);
+        $host = new CancellingHost($this->journal);
+
+        try {
+            $this->coordinator($gateway, $host, new NullCoordinatorHook())->run('TASK');
+            self::fail('Expected cancelled provider attempt.');
+        } catch (RuntimeException $exception) {
+            self::assertSame('PROCESS_CANCELLED: provider attempt was cancelled while it was running.', $exception->getMessage());
+        }
+
+        self::assertSame(1, $host->executions);
+        self::assertSame(0, $gateway->submissions);
+        self::assertSame(0, $gateway->candidateRegistrations);
+        self::assertSame(AttemptStatus::Cancelled, $this->journal->load('TASK')?->status);
+    }
+
     public function testCrashAfterProcessStartFailsClosedWithoutSecondHostExecution(): void
     {
         $gateway = new FakeGateway($this->root, $this->base);
@@ -414,6 +432,49 @@ final class MutatingCountingHost implements HostAdapter
             new ProcessResult(
                 0,
                 "AGENT_LOOP_STAGE_RESULT {\"outcome\":\"pass\",\"summary\":\"done\",\"artifact_references\":[\"artifact.txt\"],\"validation_references\":[]}\n",
+                '',
+                false,
+                $startedAt,
+                '2026-01-01T00:00:01+00:00',
+            ),
+        );
+    }
+}
+
+final class CancellingHost implements HostAdapter
+{
+    public int $executions = 0;
+
+    public function __construct(private readonly RuntimeJournal $journal)
+    {
+    }
+
+    public function id(): string
+    {
+        return 'codex';
+    }
+
+    public function probe(ProcessSupervisor $processSupervisor, string $workingDirectory, array $environment): HostAvailability
+    {
+        return new HostAvailability('codex', 'fake', '1', null);
+    }
+
+    public function execute(HostExecutionRequest $request, ProcessSupervisor $processSupervisor): HostExecutionResult
+    {
+        ++$this->executions;
+        $startedAt = '2026-01-01T00:00:00+00:00';
+        $request->observer->started(20_000, $startedAt);
+        $attempt = $this->journal->load('TASK');
+        if ($attempt === null) {
+            throw new RuntimeException('Expected a journaled provider attempt.');
+        }
+        $this->journal->cancel($attempt, static fn (): bool => true);
+
+        return new HostExecutionResult(
+            'codex',
+            new ProcessResult(
+                0,
+                "AGENT_LOOP_STAGE_RESULT {\"outcome\":\"pass\",\"summary\":\"cancelled output\",\"artifact_references\":[],\"validation_references\":[]}\n",
                 '',
                 false,
                 $startedAt,
