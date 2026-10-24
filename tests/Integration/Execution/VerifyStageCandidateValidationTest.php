@@ -9,6 +9,7 @@ use voku\AgentRecallCompiler\CompileRequest;
 use voku\AgentRecallCompiler\CompileResult;
 use voku\AgentLoop\Execution\ExecutionGateway;
 use voku\AgentLoop\Workflow\HostFrontDoorCommand;
+use voku\AgentLoop\Workflow\TaskContractStore;
 use voku\AgentLoop\Workflow\WorkflowApproveCommand;
 use voku\AgentLoop\Workflow\WorkflowExecutionProfileCommand;
 use voku\AgentLoop\Workflow\WorkflowPlanCommand;
@@ -60,7 +61,11 @@ final class VerifyStageCandidateValidationTest extends TestCase
         $base = trim((string) shell_exec('git -C ' . escapeshellarg($this->root) . ' rev-parse HEAD'));
         ob_start();
         (new WorkflowPlanCommand($this->root))->run(['TASK-1', '--by', 'owner', '--file', 'src/Foo.php', '--goal', 'g', '--validation', 'php -l src/Foo.php', '--base-commit', $base]);
-        (new WorkflowApproveCommand($this->root))->run(['TASK-1', '--by', 'owner']);
+        (new WorkflowApproveCommand($this->root))->run([
+            'TASK-1',
+            '--revision', (string) (new TaskContractStore($this->root))->load('TASK-1')->revision,
+            '--by', 'owner',
+        ]);
         (new WorkflowExecutionProfileCommand($this->root))->run(['TASK-1', '--profile', 'surgical', '--by', 'owner']);
         (new HostFrontDoorCommand($this->root, static function (CompileRequest $request): CompileResult {
             mkdir($request->outputDirectory, 0o775, true);
@@ -124,6 +129,9 @@ final class BrokenBuilderHost implements HostAdapter
         $artifacts = [];
         if ($request->roleId === 'builder') {
             file_put_contents($request->workingDirectory . '/src/Foo.php', "<?php final class Foo { this is not php }\n");
+            $artifacts[] = 'src/Foo.php';
+        } elseif ($request->roleId === 'reviewer') {
+            // The reviewer must cite the changed file before Loop can evaluate deterministic validation.
             $artifacts[] = 'src/Foo.php';
         }
         $stdout = 'AGENT_LOOP_STAGE_RESULT ' . json_encode([

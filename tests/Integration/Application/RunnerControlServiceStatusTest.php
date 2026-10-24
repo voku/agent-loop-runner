@@ -8,6 +8,7 @@ use PHPUnit\Framework\TestCase;
 use voku\AgentRecallCompiler\CompileRequest;
 use voku\AgentRecallCompiler\CompileResult;
 use voku\AgentLoop\Workflow\HostFrontDoorCommand;
+use voku\AgentLoop\Workflow\TaskContractStore;
 use voku\AgentLoop\Workflow\WorkflowApproveCommand;
 use voku\AgentLoop\Workflow\WorkflowExecutionProfileCommand;
 use voku\AgentLoop\Workflow\WorkflowPlanCommand;
@@ -49,7 +50,11 @@ final class RunnerControlServiceStatusTest extends TestCase
             '--validation', 'composer ci',
             '--base-commit', $this->base,
         ]));
-        self::assertSame(0, (new WorkflowApproveCommand($this->root))->run(['TASK-1', '--by', 'owner']));
+        self::assertSame(0, (new WorkflowApproveCommand($this->root))->run([
+            'TASK-1',
+            '--revision', (string) (new TaskContractStore($this->root))->load('TASK-1')->revision,
+            '--by', 'owner',
+        ]));
         self::assertSame(0, (new WorkflowExecutionProfileCommand($this->root))->run([
             'TASK-1',
             '--profile', 'surgical',
