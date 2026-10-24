@@ -105,6 +105,8 @@ Those paths are runner observations/configuration only. They are never workflow 
 
 Runner configuration is optional. When `.agent-loop-runner/config.json` is absent, built-in defaults apply.
 
+The config controls executable provider binaries and optional capacity probes, which receive the configured environment allowlist (including provider credentials by default). Keep it operator-owned and untracked. Runner refuses to load this file when Git reports it as tracked; the repository ignores the local config path by default.
+
 ```json
 {
   "schema_version": 1,
@@ -183,7 +185,7 @@ The built-in adapters use the documented non-interactive entry points without pe
 - Codex: `codex exec --ephemeral -` with the bounded stage prompt on stdin;
 - Claude Code: `claude -p <prompt>`. For stages Loop authorizes to mutate their isolated workspace it also passes `--permission-mode acceptEdits` and one exact `--allowedTools 'Bash(<command>)'` rule per validation command of the approved Contract (Loop's `requiredValidation`): no wildcard, no bypass flag, nothing persisted. A validation command that is not made of plain single-space separated tokens cannot be granted safely, so the stage fails closed with `PERMISSION_UNREPRESENTABLE` before any process starts. Read-only stages keep the default mode and receive no Bash rules;
 - OpenCode: `opencode run <prompt>`;
-- Antigravity: `agy --dangerously-skip-permissions -p <prompt>`.
+- Antigravity: `agy -p <prompt>`; Runner does not add permission-bypass flags.
 
 Binary paths can be configured explicitly. Model choice, reasoning/effort settings, provider credentials, and host trust policy stay outside this package's workflow semantics.
 

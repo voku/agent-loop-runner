@@ -14,6 +14,6 @@ final readonly class AgyHostAdapter extends AbstractCliHostAdapter
     /** @param non-empty-string $binaryPath */
     protected function argv(string $binaryPath, HostExecutionRequest $request): array
     {
-        return [$binaryPath, '--dangerously-skip-permissions', '-p', $request->prompt];
+        return [$binaryPath, '-p', $request->prompt];
     }
 }

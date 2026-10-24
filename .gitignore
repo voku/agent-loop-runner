@@ -4,4 +4,5 @@
 /.agent-loop-runner/runtime/
 /.agent-loop-runner/worktrees/
 /.agent-loop-runner/logs/
+/.agent-loop-runner/config.json
 .idea/
