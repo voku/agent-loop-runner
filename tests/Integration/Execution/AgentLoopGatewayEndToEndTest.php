@@ -12,6 +12,7 @@ use voku\AgentLoop\Execution\ExecutionGateway;
 use voku\AgentLoop\Execution\ExecutionStateStore;
 use voku\AgentLoop\Workflow\ExecutionContractStore;
 use voku\AgentLoop\Workflow\HostFrontDoorCommand;
+use voku\AgentLoop\Workflow\TaskContractStore;
 use voku\AgentLoop\Workflow\WorkflowApproveCommand;
 use voku\AgentLoop\Workflow\WorkflowExecutionProfileCommand;
 use voku\AgentLoop\Workflow\WorkflowPlanCommand;
@@ -81,7 +82,11 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
             '--validation', 'php -l src/Foo.php',
             '--base-commit', $this->base,
         ]));
-        self::assertSame(0, (new WorkflowApproveCommand($this->root))->run(['TASK-1', '--by', 'owner']));
+        self::assertSame(0, (new WorkflowApproveCommand($this->root))->run([
+            'TASK-1',
+            '--revision', (string) (new TaskContractStore($this->root))->load('TASK-1')->revision,
+            '--by', 'owner',
+        ]));
         self::assertSame(0, (new WorkflowExecutionProfileCommand($this->root))->run([
             'TASK-1',
             '--profile', $profile,
@@ -139,7 +144,11 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
             '--validation', 'php -l src/Foo.php',
             '--base-commit', $this->base,
         ]));
-        self::assertSame(0, (new WorkflowApproveCommand($this->root))->run([$taskId, '--by', 'owner']));
+        self::assertSame(0, (new WorkflowApproveCommand($this->root))->run([
+            $taskId,
+            '--revision', (string) (new TaskContractStore($this->root))->load($taskId)->revision,
+            '--by', 'owner',
+        ]));
         self::assertSame(0, (new WorkflowExecutionProfileCommand($this->root))->run([
             $taskId,
             '--profile', 'surgical',
@@ -236,7 +245,11 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
             '--operating-prompt-manifest', 'operating-prompts.json',
             '--operating-prompt', '{"id":"test-l2","arguments":{}}',
         ]));
-        self::assertSame(0, (new WorkflowApproveCommand($this->root))->run(['TASK-L2', '--by', 'owner']));
+        self::assertSame(0, (new WorkflowApproveCommand($this->root))->run([
+            'TASK-L2',
+            '--revision', (string) (new TaskContractStore($this->root))->load('TASK-L2')->revision,
+            '--by', 'owner',
+        ]));
         self::assertSame(0, (new WorkflowExecutionProfileCommand($this->root))->run([
             'TASK-L2',
             '--profile', 'surgical',
@@ -374,7 +387,7 @@ if grep -Fq 'Role: builder' <<<"$prompt"; then
 fi
 
 if grep -Fq 'Role: reviewer' <<<"$prompt"; then
-    printf '%s\n' 'AGENT_LOOP_STAGE_RESULT {"outcome":"pass","summary":"reviewed","artifact_references":[],"validation_references":[]}'
+    printf '%s\n' 'AGENT_LOOP_STAGE_RESULT {"outcome":"pass","summary":"reviewed","artifact_references":["src/Foo.php"],"validation_references":[]}'
     exit 0
 fi
 
@@ -459,6 +472,9 @@ final class OutcomeHost implements HostAdapter
                 $request->workingDirectory . '/src/Foo.php',
                 "<?php\nfinal class Foo { public const string BUILT = 'runner'; }\n",
             );
+            $artifactReferences[] = 'src/Foo.php';
+        } elseif (!in_array($request->roleId, ['investigator', 'builder', 'hardening'], true)) {
+            // Current Loop requires every passing review stage to cite changed candidate files.
             $artifactReferences[] = 'src/Foo.php';
         }
         $outcome = in_array($request->roleId, ['investigator', 'builder', 'hardening'], true)

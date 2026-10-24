@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-10-24
+
+### Changed
+
+- Require `voku/agent-loop ^0.20.68` so Runner consumers receive the security fixes for repository hooks, revision-bound approvals, Recall containment, and external workflow-state roots.
+- Update cross-package workflow tests to approve the revision read from Loop and make passing review fixtures cite each changed candidate file, matching Loop's current evidence boundary.
+
 ### Fixed
 
 - Reject repository-tracked `.agent-loop-runner/config.json` before reading it. The config can select provider binaries and capacity probes that execute locally with the configured environment, including credentials; untracked operator configuration remains supported.
