@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- Reject repository-tracked `.agent-loop-runner/config.json` before reading it. The config can select provider binaries and capacity probes that execute locally with the configured environment, including credentials; untracked operator configuration remains supported.
+- The Antigravity adapter no longer adds `--dangerously-skip-permissions` to provider invocations.
+
 ### Removed
 
 - Public method `voku\AgentLoopRunner\Workspace\WorkspaceLease::toArray()`, which had no caller in Runner or its consumers.

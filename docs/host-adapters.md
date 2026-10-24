@@ -5,7 +5,7 @@ Adapters are deliberately thin and noninteractive:
 * Codex: `codex exec --ephemeral -`, prompt on stdin.
 * Claude Code: `claude -p <prompt>`.
 * OpenCode: `opencode run <prompt>`.
-* Antigravity: `agy --dangerously-skip-permissions -p <prompt>`.
+* Antigravity: `agy -p <prompt>`; Runner does not add permission-bypass flags.
 
 Binary discovery and `--version` probes are observations. No model, effort, approval bypass, or workflow outcome is selected by an adapter. Deterministic fake adapters cover orchestration in CI; real provider smoke tests are run only when binaries and credentials are available.
 
@@ -33,6 +33,10 @@ Runner does not invoke a shell. Its output is an untrusted observation. The
 capacity inspector understands remaining/used percentages, used-versus-total
 JSON values, reset timestamps or durations, and common provider usage-limit
 messages. Unknown or unparseable output does not claim a quota state.
+
+Keep `.agent-loop-runner/config.json` operator-owned and untracked. Runner
+rejects a tracked config because its binaries and capacity commands execute on
+the operator's machine and may receive provider credentials.
 
 Before creating a Run worktree, Runner checks the selected host. At or above
 the threshold it uses a configured role fallback (or the primary host's
