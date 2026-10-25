@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-10-25
+
+### Changed
+
+- Raise the `voku/agent-loop` dependency floor to `^0.20.69` and advance the locked consumer graph, including `voku/agent-learning` 0.18.37, to the released Loop stack.
+
 ## [0.1.8] - 2026-10-24
 
 ### Changed
