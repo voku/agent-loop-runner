@@ -1170,16 +1170,16 @@
         },
         {
             "name": "voku/agent-loop",
-            "version": "0.20.69",
+            "version": "0.20.75",
             "source": {
                 "type": "git",
                 "url": "https://github.com/voku/agent-loop.git",
-                "reference": "620f9342b7dc9219a7fa4cbe9ed2b616d06da6de"
+                "reference": "e8295feed6a749cf349d38f0ffbc647bfb1c9c3f"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/voku/agent-loop/zipball/620f9342b7dc9219a7fa4cbe9ed2b616d06da6de",
-                "reference": "620f9342b7dc9219a7fa4cbe9ed2b616d06da6de",
+                "url": "https://api.github.com/repos/voku/agent-loop/zipball/e8295feed6a749cf349d38f0ffbc647bfb1c9c3f",
+                "reference": "e8295feed6a749cf349d38f0ffbc647bfb1c9c3f",
                 "shasum": ""
             },
             "require": {
@@ -1219,6 +1219,7 @@
                     "voku\\AgentLoop\\": "src/"
                 }
             },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -1251,7 +1252,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-10-25T00:18:24+00:00"
+            "time": "2026-10-28T16:10:29+00:00"
         },
         {
             "name": "voku/agent-map",
