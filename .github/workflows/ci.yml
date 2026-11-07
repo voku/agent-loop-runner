@@ -14,6 +14,31 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  locked-dependencies:
+    name: Locked dependency graph (PHP 8.3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          extensions: posix
+          tools: composer:v2
+
+      - name: Install exact PR composer.lock without updating dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Test exact locked dependencies (PHPUnit and PHPStan)
+        run: composer ci
+
+      - name: Prove dependency lockfile stayed unchanged
+        run: git diff --exit-code -- composer.json composer.lock
+
   test:
     runs-on: ubuntu-latest
     strategy:
