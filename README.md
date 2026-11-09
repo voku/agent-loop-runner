@@ -11,6 +11,20 @@ External execution runner and process supervisor for [`voku/agent-loop`](https:/
 [![GitHub Stars](https://img.shields.io/github/stars/voku/agent-loop-runner?style=flat-square)](https://github.com/voku/agent-loop-runner/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/voku/agent-loop-runner?style=flat-square)](https://github.com/voku/agent-loop-runner/network/members)
 
+## Where to work in this repository
+
+Runner is optional. It supervises already-authorized external processes, not the Contract or review policy. The source paths reflect that split:
+
+| Concern | Source of truth |
+| --- | --- |
+| Host adapter selection and invocation | [`src/Host/`](src/Host/) and [host adapters](docs/host-adapters.md) |
+| OS process lifecycle and recovery | [`src/Process/`](src/Process/) and [`src/Runtime/`](src/Runtime/) |
+| Isolated Git worktrees and candidate files | [`src/Workspace/`](src/Workspace/), [`src/Git/`](src/Git/) and [execution model](docs/execution-model.md) |
+| Loop-facing execution coordination | [`src/Execution/`](src/Execution/) and [`src/Application/`](src/Application/) |
+| Environment diagnostics and safety | [`src/Diagnostics/`](src/Diagnostics/), [security](docs/security.md) and [`tests/`](tests/) |
+
+Process completion or a clean exit is an observation; only `agent-loop` can accept the candidate into a governed Run.
+
 ## Architectural role
 
 `agent-loop-runner` is an **optional process supervisor** for external coding agents. It consumes already-authorized stages through `voku/agent-loop`'s public execution API, invokes local agent binaries in isolated Git worktrees, and returns candidate changes and artifact observations for owner validation.
