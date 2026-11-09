@@ -46,31 +46,31 @@ known, and how to configure a fallback.
 
 ## Host trust for mutating stages
 
-Adapters intentionally expose no permission, approval, or sandbox flag. Host trust is an
-environment concern, so a mutating governed stage only works when the operator has already
-granted the provider process permission to write, by either:
+The execution authority still comes from `agent-loop`; host permissions do not
+approve a Contract or prove a completed stage. Runner does **not** add blanket
+permission-bypass flags.
 
-* the provider's own configuration (for Claude Code, a project `.claude/settings.json`
-  with `permissions.defaultMode` set to a write-capable mode such as `acceptEdits`), or
-* pointing `hosts.<id>.binary` in `.agent-loop-runner/config.json` at an operator-owned
-  launcher script that adds the trust flags before exec'ing the real CLI.
+For Claude Code, the current `ClaudeHostAdapter::argv()` has explicit,
+stage-specific behavior:
 
-For example, the Claude Code project setting is nested under `permissions`:
+- A read-only stage invokes `claude -p <prompt>` without additional permission
+  flags.
+- An already-authorized **mutating** stage invokes Claude with
+  `--permission-mode acceptEdits`. This enables file edits in the isolated Run
+  workspace without requiring a project-wide
+  `.claude/settings.json` `permissions.defaultMode` change or an operator
+  launcher merely to enable ordinary edits.
+- Approved validation commands are converted into exact
+  `--allowedTools Bash(<command>)` rules. The adapter does not supply wildcards,
+  general Bash permission or persistent user/project settings.
 
-```json
-{
-  "permissions": {
-    "defaultMode": "acceptEdits"
-  }
-}
-```
+The accepted commands come from the current approved execution request.
+`acceptEdits` is not permission to bypass host policies for other tools or
+perform unrelated commands. Other provider adapters retain their own documented
+host-trust behavior; operators remain responsible for credentials and the
+provider runtime. An operator-provided binary/launcher remains a configuration
+option, not a Claude Code prerequisite.
 
-`binary` accepts an absolute path, so the launcher route needs no Runner change. Runner must
-not grow its own permission knob: that would move host trust policy inside the execution plane.
-
-Observed with real Claude Code 2.1.x: with default permissions a write is denied, yet the
-process still **exits 0** and prints an explanatory sentence instead of performing the work.
-A mutating stage run that way produces an unchanged candidate. This is a concrete instance of
-the standing invariant — `process exit 0 != stage passed`. A zero process exit is necessary on
-the current execution path but insufficient for acceptance: non-zero exits are rejected first,
-and a successful process still needs a parsed completion envelope plus owner-side validation.
+A process may exit successfully without producing an accepted candidate.
+An exit code of zero is only process evidence; Runner and Loop must still
+validate the completion envelope, changed candidate and governed stage result.
