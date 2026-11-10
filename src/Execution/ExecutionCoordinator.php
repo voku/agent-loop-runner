@@ -261,6 +261,7 @@ final readonly class ExecutionCoordinator
                         $this->supervisor,
                     );
                     $this->throwIfCancelled($attempt);
+                    $this->hook->reached('after_cancellation_check');
                     if ($result->process->startedAt === '' || $result->process->finishedAt === '') {
                         throw new RuntimeException('PROCESS_FAILED: process evidence is incomplete.');
                     }
@@ -279,6 +280,7 @@ final readonly class ExecutionCoordinator
                             || !hash_equals($attempt->submissionId, $startedAttempt->submissionId)
                             || !hash_equals($attempt->hostId, $startedAttempt->hostId)
                         ) {
+                            $this->throwIfCancelled($attempt);
                             throw new RuntimeException('PROCESS_FAILED: durable process start evidence is missing or stale.');
                         }
                         $observedPid = $startedAttempt->process['pid'] ?? null;

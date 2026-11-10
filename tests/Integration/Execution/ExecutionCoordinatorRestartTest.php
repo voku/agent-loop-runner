@@ -202,6 +202,35 @@ final class ExecutionCoordinatorRestartTest extends TestCase
         self::assertSame(AttemptStatus::Cancelled, $this->journal->load('TASK')?->status);
     }
 
+    public function testCancellationAfterInitialCheckIsReportedBeforeContextEvidence(): void
+    {
+        $gateway = new FakeGateway($this->root, $this->base);
+        $hook = new class($this->journal) implements CoordinatorHook {
+            public function __construct(private readonly RuntimeJournal $journal) {}
+
+            public function reached(string $boundary): void
+            {
+                if ($boundary === 'after_cancellation_check') {
+                    $attempt = $this->journal->load('TASK');
+                    if ($attempt === null) {
+                        throw new RuntimeException('Expected a journaled provider attempt.');
+                    }
+                    $this->journal->cancel($attempt, static fn (): bool => true);
+                }
+            }
+        };
+
+        try {
+            $this->coordinator($gateway, new MutatingCountingHost(), $hook)->run('TASK');
+            self::fail('Expected cancelled provider attempt.');
+        } catch (RuntimeException $exception) {
+            self::assertStringStartsWith('PROCESS_CANCELLED:', $exception->getMessage());
+        }
+        self::assertSame(0, $gateway->submissions);
+        self::assertSame(0, $gateway->candidateRegistrations);
+        self::assertSame(AttemptStatus::Cancelled, $this->journal->load('TASK')?->status);
+    }
+
     public function testCrashAfterProcessStartFailsClosedWithoutSecondHostExecution(): void
     {
         $gateway = new FakeGateway($this->root, $this->base);
