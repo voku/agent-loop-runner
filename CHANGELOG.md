@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-11-10
+
 ### Fixed
 
 - An active `run` now exits with `PROCESS_CANCELLED` (17) when its provider process is cancelled, including when the provider returns a successful exit after cancellation. The terminal cancellation remains in the Runner journal and no stage result is submitted.
