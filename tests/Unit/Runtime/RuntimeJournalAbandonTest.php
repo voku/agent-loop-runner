@@ -64,7 +64,7 @@ final class RuntimeJournalAbandonTest extends TestCase
         $this->journal->abandon($started, 'lars', 'gone', static fn (): bool => true);
 
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('cancelled runtime attempt cannot be overwritten');
+        $this->expectExceptionMessage('PROCESS_CANCELLED: provider attempt was cancelled before its result was recorded.');
         $this->journal->save($started);
     }
 

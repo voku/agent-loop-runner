@@ -91,7 +91,7 @@ final class RuntimeJournalTest extends TestCase
         $journal->cancel($started, static fn (): bool => true);
 
         $this->expectException(\RuntimeException::class);
-        $this->expectExceptionMessage('cancelled runtime attempt cannot be overwritten');
+        $this->expectExceptionMessage('PROCESS_CANCELLED: provider attempt was cancelled before its result was recorded.');
         $journal->save($started);
     }
 
