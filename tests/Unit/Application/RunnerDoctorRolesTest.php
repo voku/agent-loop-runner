@@ -14,17 +14,44 @@ final class RunnerDoctorRolesTest extends TestCase
     {
         $this->root = sys_get_temp_dir() . '/runner-doctor-roles-' . bin2hex(random_bytes(6));
         mkdir($this->root . '/.agent-loop-runner', 0777, true);
+        $this->git(['init', '--quiet']);
     }
 
     protected function tearDown(): void
     {
-        foreach ([$this->root . '/fake-claude', $this->root . '/.agent-loop-runner/config.json'] as $file) {
-            if (is_file($file)) {
-                unlink($file);
+        $this->removeDirectory($this->root);
+    }
+
+    /** @param list<string> $arguments */
+    private function git(array $arguments): void
+    {
+        $process = proc_open(
+            ['git', ...$arguments],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $this->root,
+            ['PATH' => (string) getenv('PATH')],
+            ['bypass_shell' => true],
+        );
+        self::assertIsResource($process);
+        stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        self::assertSame(0, proc_close($process), $stderr);
+    }
+
+    private function removeDirectory(string $path): void
+    {
+        foreach (array_diff(scandir($path) ?: [], ['.', '..']) as $entry) {
+            $child = $path . '/' . $entry;
+            if (is_link($child) || is_file($child)) {
+                unlink($child);
+            } elseif (is_dir($child)) {
+                $this->removeDirectory($child);
             }
         }
-        rmdir($this->root . '/.agent-loop-runner');
-        rmdir($this->root);
+        rmdir($path);
     }
 
     private function autoloadFile(): string

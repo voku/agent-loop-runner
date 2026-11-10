@@ -76,6 +76,7 @@ final readonly class RunnerConfig
         if (!is_file($path)) {
             return self::defaults();
         }
+        (new RunnerConfigTrustGuard())->assertOperatorOwned($projectRoot);
         $json = file_get_contents($path);
         if (!is_string($json)) {
             throw new RuntimeException('Unable to read runner config: ' . $path);

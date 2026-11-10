@@ -9,6 +9,16 @@
         "phpunit/phpunit"
       ],
       "allowedVersions": "<13"
+    },
+    {
+      "description": "Automerge patch dependency updates only when all configured PR checks pass",
+      "matchUpdateTypes": [
+        "patch"
+      ],
+      "automerge": true
     }
-  ]
+  ],
+  "automergeType": "pr",
+  "platformAutomerge": false,
+  "ignoreTests": false
 }

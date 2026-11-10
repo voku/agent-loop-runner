@@ -11,6 +11,20 @@ External execution runner and process supervisor for [`voku/agent-loop`](https:/
 [![GitHub Stars](https://img.shields.io/github/stars/voku/agent-loop-runner?style=flat-square)](https://github.com/voku/agent-loop-runner/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/voku/agent-loop-runner?style=flat-square)](https://github.com/voku/agent-loop-runner/network/members)
 
+## Where to work in this repository
+
+Runner is optional. It supervises already-authorized external processes, not the Contract or review policy. The source paths reflect that split:
+
+| Concern | Source of truth |
+| --- | --- |
+| Host adapter selection and invocation | [`src/Host/`](src/Host/) and [host adapters](docs/host-adapters.md) |
+| OS process lifecycle and recovery | [`src/Process/`](src/Process/) and [`src/Runtime/`](src/Runtime/) |
+| Isolated Git worktrees and candidate files | [`src/Workspace/`](src/Workspace/), [`src/Git/`](src/Git/) and [execution model](docs/execution-model.md) |
+| Loop-facing execution coordination | [`src/Execution/`](src/Execution/) and [`src/Application/`](src/Application/) |
+| Environment diagnostics and safety | [`src/Diagnostics/`](src/Diagnostics/), [security](docs/security.md) and [`tests/`](tests/) |
+
+Process completion or a clean exit is an observation; only `agent-loop` can accept the candidate into a governed Run.
+
 ## Architectural role
 
 `agent-loop-runner` is an **optional process supervisor** for external coding agents. It consumes already-authorized stages through `voku/agent-loop`'s public execution API, invokes local agent binaries in isolated Git worktrees, and returns candidate changes and artifact observations for owner validation.
@@ -105,6 +119,8 @@ Those paths are runner observations/configuration only. They are never workflow 
 
 Runner configuration is optional. When `.agent-loop-runner/config.json` is absent, built-in defaults apply.
 
+The config controls executable provider binaries and optional capacity probes, which receive the configured environment allowlist (including provider credentials by default). Keep it operator-owned and untracked. Runner refuses to load this file when Git reports it as tracked; the repository ignores the local config path by default.
+
 ```json
 {
   "schema_version": 1,
@@ -183,7 +199,7 @@ The built-in adapters use the documented non-interactive entry points without pe
 - Codex: `codex exec --ephemeral -` with the bounded stage prompt on stdin;
 - Claude Code: `claude -p <prompt>`. For stages Loop authorizes to mutate their isolated workspace it also passes `--permission-mode acceptEdits` and one exact `--allowedTools 'Bash(<command>)'` rule per validation command of the approved Contract (Loop's `requiredValidation`): no wildcard, no bypass flag, nothing persisted. A validation command that is not made of plain single-space separated tokens cannot be granted safely, so the stage fails closed with `PERMISSION_UNREPRESENTABLE` before any process starts. Read-only stages keep the default mode and receive no Bash rules;
 - OpenCode: `opencode run <prompt>`;
-- Antigravity: `agy --dangerously-skip-permissions -p <prompt>`.
+- Antigravity: `agy -p <prompt>`; Runner does not add permission-bypass flags.
 
 Binary paths can be configured explicitly. Model choice, reasoning/effort settings, provider credentials, and host trust policy stay outside this package's workflow semantics.
 

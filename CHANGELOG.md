@@ -5,6 +5,23 @@
 ### Fixed
 
 - An active `run` now exits with `PROCESS_CANCELLED` (17) when its provider process is cancelled, including when the provider returns a successful exit after cancellation. The terminal cancellation remains in the Runner journal and no stage result is submitted.
+## [0.1.9] - 2026-10-25
+
+### Changed
+
+- Raise the `voku/agent-loop` dependency floor to `^0.20.69` and advance the locked consumer graph, including `voku/agent-learning` 0.18.37, to the released Loop stack.
+
+## [0.1.8] - 2026-10-24
+
+### Changed
+
+- Require `voku/agent-loop ^0.20.68` so Runner consumers receive the security fixes for repository hooks, revision-bound approvals, Recall containment, and external workflow-state roots.
+- Update cross-package workflow tests to approve the revision read from Loop and make passing review fixtures cite each changed candidate file, matching Loop's current evidence boundary.
+
+### Fixed
+
+- Reject repository-tracked `.agent-loop-runner/config.json` before reading it. The config can select provider binaries and capacity probes that execute locally with the configured environment, including credentials; untracked operator configuration remains supported.
+- The Antigravity adapter no longer adds `--dangerously-skip-permissions` to provider invocations.
 
 ### Removed
 

@@ -56,9 +56,9 @@ final class HostAdapterContractTest extends TestCase
             [$placeholder, 'run', 'hostile $(touch nope) `still-data`'],
             '',
         ];
-        yield 'agy uses print mode with dangerously-skip-permissions and prompt as argv data' => [
+        yield 'agy uses print mode without a permission-bypass flag and prompt as argv data' => [
             new AgyHostAdapter($placeholder),
-            [$placeholder, '--dangerously-skip-permissions', '-p', 'hostile $(touch nope) `still-data`'],
+            [$placeholder, '-p', 'hostile $(touch nope) `still-data`'],
             '',
         ];
     }

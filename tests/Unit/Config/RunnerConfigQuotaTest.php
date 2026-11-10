@@ -15,6 +15,7 @@ final class RunnerConfigQuotaTest extends TestCase
         $root = sys_get_temp_dir() . '/runner-config-quota-' . bin2hex(random_bytes(5));
         $dir = $root . '/.agent-loop-runner';
         mkdir($dir, 0o775, true);
+        $this->git($root, ['init', '--quiet']);
         file_put_contents($dir . '/config.json', json_encode([
             'schema_version' => 1,
             'hosts' => [
@@ -49,10 +50,40 @@ final class RunnerConfigQuotaTest extends TestCase
             self::assertNull($config->fallbackHostForRole('reviewer'));
             self::assertSame(0.90, $config->quotaUsageThreshold);
         } finally {
-            unlink($dir . '/config.json');
-            rmdir($dir);
-            rmdir($root);
+            $this->removeDirectory($root);
         }
+    }
+
+    /** @param list<string> $arguments */
+    private function git(string $root, array $arguments): void
+    {
+        $process = proc_open(
+            ['git', ...$arguments],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $root,
+            ['PATH' => (string) getenv('PATH')],
+            ['bypass_shell' => true],
+        );
+        self::assertIsResource($process);
+        stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        self::assertSame(0, proc_close($process), $stderr);
+    }
+
+    private function removeDirectory(string $path): void
+    {
+        foreach (array_diff(scandir($path) ?: [], ['.', '..']) as $entry) {
+            $child = $path . '/' . $entry;
+            if (is_link($child) || is_file($child)) {
+                unlink($child);
+            } elseif (is_dir($child)) {
+                $this->removeDirectory($child);
+            }
+        }
+        rmdir($path);
     }
 
     public function testHostFallbackUsedWhenRoleFallbackNotExplicit(): void

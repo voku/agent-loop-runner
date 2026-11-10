@@ -44,6 +44,7 @@ final class ConfigEnvironmentTest extends TestCase
         $root = sys_get_temp_dir() . '/agent-loop-runner-config-' . bin2hex(random_bytes(5));
         $directory = $root . '/.agent-loop-runner';
         self::assertTrue(mkdir($directory, 0o700, true));
+        $this->git($root, ['init', '--quiet']);
         self::assertNotFalse(file_put_contents($directory . '/config.json', json_encode([
             'schema_version' => 1,
             'execution' => [
@@ -62,10 +63,40 @@ final class ConfigEnvironmentTest extends TestCase
             self::assertSame('gpt-5.6-luna', $policy->model);
             self::assertSame('low', $policy->reasoningEffort);
         } finally {
-            unlink($directory . '/config.json');
-            rmdir($directory);
-            rmdir($root);
+            $this->removeDirectory($root);
         }
+    }
+
+    /** @param list<string> $arguments */
+    private function git(string $root, array $arguments): void
+    {
+        $process = proc_open(
+            ['git', ...$arguments],
+            [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $root,
+            ['PATH' => (string) getenv('PATH')],
+            ['bypass_shell' => true],
+        );
+        self::assertIsResource($process);
+        stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        self::assertSame(0, proc_close($process), $stderr);
+    }
+
+    private function removeDirectory(string $path): void
+    {
+        foreach (array_diff(scandir($path) ?: [], ['.', '..']) as $entry) {
+            $child = $path . '/' . $entry;
+            if (is_link($child) || is_file($child)) {
+                unlink($child);
+            } elseif (is_dir($child)) {
+                $this->removeDirectory($child);
+            }
+        }
+        rmdir($path);
     }
 
     public function testUnknownRoleFailsClosed(): void
