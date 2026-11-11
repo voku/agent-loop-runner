@@ -37,6 +37,9 @@ final readonly class AttentionResumeWatcher
 
         $initial = ($this->observe)($taskId);
         $pending = $initial->attention;
+        if ($initial->taskId !== $taskId) {
+            throw new RuntimeException('STALE_RUN: owner projected a different Task identity.');
+        }
         if ($pending === null || $initial->currentStageId === null) {
             throw new RuntimeException('TRANSITION_REJECTED: watch requires an already-pending, stage-bound Attention.');
         }
