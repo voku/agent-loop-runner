@@ -91,7 +91,10 @@ Process exit status never implies acceptance; only Loop accepts a stage result.
 
 ### Optional foreground Attention watch
 
-After an Attention is opened, an operator or a managed external supervisor may run
+An operator can start `agent-loop-runner run TASK --watch` or
+`agent-loop-runner resume TASK --watch` to keep the same foreground command
+alive after its first `WAITING_FOR_ATTENTION` exit boundary. Alternatively,
+a process manager that encounters an already-open Attention may run
 `agent-loop-runner watch TASK --interval-seconds=4 --timeout-seconds=900`
 in a **persistent foreground process**. This is an opt-in helper, not a browser
 timer, auto-approver, or new execution authority. It starts only if a stage-bound
