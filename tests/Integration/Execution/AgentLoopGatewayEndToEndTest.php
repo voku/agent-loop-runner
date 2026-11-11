@@ -168,7 +168,7 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
                         'selected_constraints' => [],
                         'output_hashes' => [],
                     ], JSON_THROW_ON_ERROR));
-                    file_put_contents($request->outputDirectory . '/system.md', "# Recall\\nStay governed.\\n");
+                    file_put_contents($request->outputDirectory . '/system.md', "# Recall\nStay governed.\n");
 
                     return new CompileResult($request->outputDirectory, 'attention-fixture', str_repeat('a', 64));
                 },
@@ -627,7 +627,7 @@ final class AttentionOnceHost implements HostAdapter
                     'summary' => 'A human must clarify first.',
                     'artifact_references' => [],
                     'validation_references' => [],
-                ], JSON_THROW_ON_ERROR) . "\\n",
+                ], JSON_THROW_ON_ERROR) . "\n",
                 '',
                 false,
                 $startedAt,
