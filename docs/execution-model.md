@@ -114,9 +114,8 @@ approval. Multiple overlapping foreground watchers are unnecessary; use one
 supervised watcher per task.
 
 No Browser/Agent UI page must remain open for this command to work, but the
-process must stay running until resolution or timeout. This does not yet provide
-a durable multi-task service or automatic watcher creation when `run` first
-encounters Attention.
+process must stay running until resolution or timeout. This does not yet provide an unattended multi-task service or watcher
+creation without explicit `--watch` opt-in.
 
 ## Abandoning a stale attempt
 
