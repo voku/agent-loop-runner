@@ -180,6 +180,7 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
 
         $host = new AttentionOnceHost();
         $coordinator = $this->coordinator($host);
+        $snapshot = null;
         try {
             $coordinator->run($taskId);
             self::fail('The first external stage must require a real Loop-owned Attention.');
@@ -187,6 +188,7 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
             $snapshot = $pending->projection;
         }
 
+        self::assertNotNull($snapshot);
         self::assertNotNull($snapshot->attention);
         self::assertSame('investigate', $snapshot->currentStageId);
         self::assertSame(1, $host->attentionRequests);
@@ -198,7 +200,7 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
         $human->resolveAttention($taskId, $snapshot->attention->id, 'independent-human', 'Proceed', $reviewed);
 
         $watcher = new AttentionResumeWatcher(
-            static fn (string $id): \voku\AgentLoop\Execution\ExecutionProjection => (new ExecutionGateway($this->root))->projection($id),
+            fn (string $id): \voku\AgentLoop\Execution\ExecutionProjection => (new ExecutionGateway($this->root))->projection($id),
             static fn (string $id, \voku\AgentLoop\Execution\ExecutionProjection $accepted): \voku\AgentLoop\Execution\ExecutionProjection => $coordinator->resumeExpected($id, $accepted),
             static function (int $seconds): void {
                 self::fail('Already resolved Attention must resume immediately, without sleeping.');
