@@ -18,7 +18,7 @@ use voku\AgentLoop\Workflow\TaskContractStore;
 use voku\AgentLoop\Workflow\WorkflowApproveCommand;
 use voku\AgentLoop\Workflow\WorkflowExecutionProfileCommand;
 use voku\AgentLoop\Workflow\WorkflowPlanCommand;
-use voku\AgentLoop\Workflow\WorkflowHumanDecisionService;
+use voku\AgentLoop\Workflow\WorkflowAttentionCommand;
 use voku\AgentLoopRunner\Config\RunnerConfig;
 use voku\AgentLoopRunner\Diagnostics\DiagnosticLogStore;
 use voku\AgentLoopRunner\Execution\AgentLoopExecutionGateway;
@@ -192,11 +192,18 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
         self::assertSame('investigate', $snapshot->currentStageId);
         self::assertSame(1, $host->attentionRequests);
 
-        $human = new WorkflowHumanDecisionService($this->root);
-        $reviewed = $human->pendingAttention($taskId);
-        self::assertNotNull($reviewed);
-        self::assertSame($snapshot->attention->id, $reviewed->attention->id);
-        $human->resolveAttention($taskId, $snapshot->attention->id, 'independent-human', 'Proceed', $reviewed);
+        // Public human-owned workflow transition is present in the locked
+        // released agent-loop, not just in current main's newer service API.
+        ob_start();
+        try {
+            $resolutionExit = (new WorkflowAttentionCommand($this->root))->run([
+                $taskId, '--resolve', $snapshot->attention->id, '--by', 'independent-human',
+            ]);
+        } finally {
+            ob_end_clean();
+        }
+        self::assertSame(0, $resolutionExit);
+        self::assertNull((new ExecutionGateway($this->root))->projection($taskId)->attention);
 
         $watcher = new AttentionResumeWatcher(
             fn (string $id): \voku\AgentLoop\Execution\ExecutionProjection => (new ExecutionGateway($this->root))->projection($id),
