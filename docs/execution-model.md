@@ -105,10 +105,16 @@ Stop it with the terminal/process manager; it has no independent background life
 The watcher refuses a changed Task/Run/Contract/plan/candidate, a different
 Attention ID, and a cleared Attention without an observable stage/attempt change.
 A normal resolution advances the attempt; review-change resolution may route to
-another stage. Once Loop exposes an authorized new stage, the watcher calls the
-**existing locked Runner resume** exactly once. Runner re-reads Loop authority
-before any provider invocation; concurrent callers remain protected by Runner's
-per-task lock. If another actor completed the Run, no provider is started.
+another stage. `run --watch` and `resume --watch` preserve the exact pending
+Loop projection from Runner's locked interruption, including an Attention
+that was resolved immediately before watcher handoff. The watcher uses
+monotonic elapsed time for the entire wait (including reads) and **never**
+resumes after the configured deadline. Once Loop exposes an authorized new
+stage, it passes the accepted projection to Runner's **locked expected-owner
+resume**, which rejects any changed Run, Contract, plan, stage, attempt or
+candidate before preparation or provider invocation. Concurrent callers remain
+protected by Runner's per-task lock. If another actor completed the Run, no
+provider is started.
 Unreadable projections or stale evidence fail closed rather than being treated as
 approval. Multiple overlapping foreground watchers are unnecessary; use one
 supervised watcher per task.
