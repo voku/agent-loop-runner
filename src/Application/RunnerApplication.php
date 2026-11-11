@@ -9,6 +9,8 @@ use RuntimeException;
 use Throwable;
 use voku\AgentLoop\Execution\ExecutionGateway;
 use voku\AgentLoopRunner\Config\RunnerConfig;
+use voku\AgentLoopRunner\Execution\WaitingForAttention;
+use voku\AgentLoop\Execution\ExecutionProjection;
 use voku\AgentLoopRunner\Diagnostics\ValidationCommandInspector;
 use voku\AgentLoopRunner\Git\GitCommand;
 use voku\AgentLoopRunner\Host\AgyHostAdapter;
@@ -143,14 +145,14 @@ final readonly class RunnerApplication
         $controls = $this->controls();
         try {
             $projection = $command === 'run' ? $controls->run($taskId) : $controls->resume($taskId);
-        } catch (RuntimeException $exception) {
-            if (!$watch || !str_starts_with($exception->getMessage(), 'WAITING_FOR_ATTENTION:')) {
+        } catch (WaitingForAttention $exception) {
+            if (!$watch) {
                 throw $exception;
             }
 
-            // The already-running foreground command now waits for an external
-            // owner decision. No second manual command is required.
-            return $this->watch($taskId, $watchOptions);
+            // Preserve the exact locked WAITING projection. The human might
+            // have resolved this Attention before watch's first fresh read.
+            return $this->watch($taskId, $watchOptions, $exception->projection);
         }
         $this->json([
             'task_id' => $projection->taskId,
@@ -167,7 +169,7 @@ final readonly class RunnerApplication
      *
      * @param list<string> $options
      */
-    private function watch(string $taskId, array $options): int
+    private function watch(string $taskId, array $options, ?ExecutionProjection $waiting = null): int
     {
         $parsed = $this->parseWatchOptions($options);
         if ($parsed === null) {
@@ -178,7 +180,7 @@ final readonly class RunnerApplication
         $gateway = new ExecutionGateway($this->projectRoot);
         $watcher = new AttentionResumeWatcher(
             $gateway->projection(...),
-            $controls->resume(...),
+            $controls->resumeExpected(...),
             static function (int $seconds): void {
                 sleep($seconds);
             },
@@ -188,6 +190,7 @@ final readonly class RunnerApplication
             $taskId,
             $parsed['interval-seconds'] ?? 4,
             $parsed['timeout-seconds'] ?? 900,
+            $waiting,
         );
         $this->json([
             'task_id' => $projection->taskId,
