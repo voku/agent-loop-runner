@@ -188,7 +188,6 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
             $snapshot = $pending->projection;
         }
 
-        self::assertNotNull($snapshot);
         self::assertNotNull($snapshot->attention);
         self::assertSame('investigate', $snapshot->currentStageId);
         self::assertSame(1, $host->attentionRequests);
