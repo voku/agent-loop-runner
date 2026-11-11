@@ -29,6 +29,14 @@ final class RunnerApplicationTest extends TestCase
         );
     }
 
+    public function testRunWatchRejectsInvalidPollingBeforeStartingHost(): void
+    {
+        self::assertSame(
+            ExitCode::USAGE,
+            (new RunnerApplication(__DIR__))->run(['run', 'TASK-1', '--watch', '--timeout-seconds=0']),
+        );
+    }
+
     public function testResumeRejectsDuplicateWatchSwitch(): void
     {
         self::assertSame(
