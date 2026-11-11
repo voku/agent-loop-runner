@@ -137,6 +137,9 @@ final readonly class RunnerApplication
             return $this->watchUsage();
         }
         $watchOptions = array_values(array_filter($options, static fn (string $option): bool => $option !== '--watch'));
+        if ($watch && $this->parseWatchOptions($watchOptions) === null) {
+            return $this->watchUsage();
+        }
         $controls = $this->controls();
         try {
             $projection = $command === 'run' ? $controls->run($taskId) : $controls->resume($taskId);
@@ -166,18 +169,9 @@ final readonly class RunnerApplication
      */
     private function watch(string $taskId, array $options): int
     {
-        $parsed = [];
-        foreach ($options as $option) {
-            if (preg_match('/^--(interval-seconds|timeout-seconds)=([1-9][0-9]*)$/D', $option, $matches) !== 1
-                || isset($parsed[$matches[1]])) {
-                return $this->watchUsage();
-            }
-            $number = (int) $matches[2];
-            $limit = $matches[1] === 'interval-seconds' ? 60 : 86400;
-            if ($number < 1 || $number > $limit) {
-                return $this->watchUsage();
-            }
-            $parsed[$matches[1]] = $number;
+        $parsed = $this->parseWatchOptions($options);
+        if ($parsed === null) {
+            return $this->watchUsage();
         }
 
         $controls = $this->controls();
@@ -202,6 +196,31 @@ final readonly class RunnerApplication
         ]);
 
         return ExitCode::OK;
+    }
+
+    /**
+     * Watch options must be validated BEFORE any provider execution.
+     *
+     * @param list<string> $options
+     * @return array<string, int>|null
+     */
+    private function parseWatchOptions(array $options): ?array
+    {
+        $parsed = [];
+        foreach ($options as $option) {
+            if (preg_match('/^--(interval-seconds|timeout-seconds)=([1-9][0-9]*)$/D', $option, $matches) !== 1
+                || isset($parsed[$matches[1]])) {
+                return null;
+            }
+            $number = (int) $matches[2];
+            $limit = $matches[1] === 'interval-seconds' ? 60 : 86400;
+            if ($number < 1 || $number > $limit) {
+                return null;
+            }
+            $parsed[$matches[1]] = $number;
+        }
+
+        return $parsed;
     }
 
     private function watchUsage(): int
