@@ -89,6 +89,15 @@ final readonly class RunnerControlService
         return $this->coordinator()->resume($taskId);
     }
 
+    /**
+     * Guard the externally resolved Attention binding inside Runner's task lock.
+     * Only a fresh exact owner projection can authorize resumed execution.
+     */
+    public function resumeExpected(string $taskId, ExecutionProjection $accepted): ExecutionProjection
+    {
+        return $this->coordinator()->resumeExpected($taskId, $accepted);
+    }
+
     public function cancel(string $taskId): RuntimeAttempt
     {
         $journal = new RuntimeJournal(new RunnerLayout($this->projectRoot));
