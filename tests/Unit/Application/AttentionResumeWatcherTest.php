@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace voku\AgentLoopRunner\Tests\Unit\Application;
 
-use Closure;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use voku\AgentLoop\Execution\AttentionKind;
@@ -43,6 +42,50 @@ final class AttentionResumeWatcherTest extends TestCase
         self::assertSame($resolved, $watcher->watch('TASK-1', 2, 10));
         self::assertSame(1, $resumeCalls);
         self::assertSame([2, 2], $delays);
+    }
+
+    public function testReviewChangesMayResumeInDifferentAuthorizedStage(): void
+    {
+        $attention = new AttentionRequest(
+            'review-1', 'TASK-1', 'run-1', AttentionKind::REVIEW_CHANGES_REQUIRED,
+            'Changes required', 'review', '2026-11-11T12:00:00Z',
+        );
+        $waiting = new ExecutionProjection(
+            'TASK-1', 'run-1', 1, ExecutionProfileName::SURGICAL,
+            'sha256:plan', 'review', 1, $attention, [], 'candidate',
+        );
+        $resolved = self::projection('run-1', 1);
+        $called = 0;
+        $observations = [$waiting, $resolved];
+        $watcher = new AttentionResumeWatcher(
+            static function (string $taskId) use (&$observations): ExecutionProjection {
+                return array_shift($observations) ?? throw new RuntimeException('Unexpected projection read: ' . $taskId);
+            },
+            static function (string $taskId) use (&$called, $resolved): ExecutionProjection {
+                self::assertSame('TASK-1', $taskId);
+                ++$called;
+
+                return $resolved;
+            },
+            static function (int $seconds): void {
+            },
+        );
+
+        self::assertSame($resolved, $watcher->watch('TASK-1', 1, 1));
+        self::assertSame(1, $called);
+    }
+
+    public function testRefusesCandidateDrift(): void
+    {
+        $waiting = self::projection('run-1', 1, self::attention());
+        $revised = new ExecutionProjection(
+            'TASK-1', 'run-1', 1, ExecutionProfileName::SURGICAL,
+            'sha256:plan', 'build', 2, null, [], 'different-candidate',
+        );
+        $watcher = self::watcher([$waiting, $revised]);
+
+        $this->expectExceptionMessage('STALE_RUN:');
+        $watcher->watch('TASK-1', 1, 1);
     }
 
     public function testRefusesAReplacedAttentionWithoutRunning(): void
