@@ -34,7 +34,7 @@ final readonly class RunnerApplication
             return match ($command) {
                 'doctor' => $this->doctor($task !== null && trim($task) !== '' ? $task : null),
                 'status' => $this->withTask($task, fn (string $id): int => $this->status($id)),
-                'run', 'resume' => $this->withTask($task, fn (string $id): int => $this->execute($id, $command)),
+                'run', 'resume' => $this->withTask($task, fn (string $id): int => $this->execute($id, $command, array_slice($arguments, 2))),
                 'watch' => $this->withTask($task, fn (string $id): int => $this->watch($id, array_slice($arguments, 2))),
                 'cancel' => $this->withTask($task, fn (string $id): int => $this->cancel($id)),
                 'abandon' => $this->withTask($task, fn (string $id): int => $this->abandon($id, array_slice($arguments, 2))),
@@ -128,10 +128,27 @@ final readonly class RunnerApplication
         return ExitCode::OK;
     }
 
-    private function execute(string $taskId, string $command): int
+    /** @param list<string> $options */
+    private function execute(string $taskId, string $command, array $options): int
     {
+        $watch = in_array('--watch', $options, true);
+        $watchCount = count(array_filter($options, static fn (string $option): bool => $option === '--watch'));
+        if ((!$watch && $options !== []) || $watchCount > 1) {
+            return $this->watchUsage();
+        }
+        $watchOptions = array_values(array_filter($options, static fn (string $option): bool => $option !== '--watch'));
         $controls = $this->controls();
-        $projection = $command === 'run' ? $controls->run($taskId) : $controls->resume($taskId);
+        try {
+            $projection = $command === 'run' ? $controls->run($taskId) : $controls->resume($taskId);
+        } catch (RuntimeException $exception) {
+            if (!$watch || !str_starts_with($exception->getMessage(), 'WAITING_FOR_ATTENTION:')) {
+                throw $exception;
+            }
+
+            // The already-running foreground command now waits for an external
+            // owner decision. No second manual command is required.
+            return $this->watch($taskId, $watchOptions);
+        }
         $this->json([
             'task_id' => $projection->taskId,
             'complete' => $projection->complete(),
@@ -189,7 +206,7 @@ final readonly class RunnerApplication
 
     private function watchUsage(): int
     {
-        fwrite(STDERR, "Usage: agent-loop-runner watch TASK [--interval-seconds=1..60] [--timeout-seconds=1..86400]\\n");
+        fwrite(STDERR, "Usage: agent-loop-runner watch TASK [--interval-seconds=1..60] [--timeout-seconds=1..86400]\nOr: agent-loop-runner <run|resume> TASK --watch [--interval-seconds=N] [--timeout-seconds=N]\n");
 
         return ExitCode::USAGE;
     }
