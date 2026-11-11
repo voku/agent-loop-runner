@@ -57,26 +57,41 @@ final readonly class ExecutionCoordinator
         return $this->withExecutionLock($taskId);
     }
 
-    private function withExecutionLock(string $taskId): ExecutionProjection
+    /**
+     * Resume only if the locked owner projection still matches the exact
+     * resolved Attention snapshot accepted by the foreground watcher.
+     */
+    public function resumeExpected(string $taskId, ExecutionProjection $expected): ExecutionProjection
+    {
+        return $this->withExecutionLock($taskId, $expected);
+    }
+
+    private function withExecutionLock(string $taskId, ?ExecutionProjection $expected = null): ExecutionProjection
     {
         $lock = RunExecutionLock::acquire(new RunnerLayout($this->workspaces->projectRoot()), $taskId);
         try {
-            return $this->reconcile($taskId);
+            return $this->reconcile($taskId, $expected);
         } finally {
             $lock->release();
         }
     }
 
-    private function reconcile(string $taskId): ExecutionProjection
+    private function reconcile(string $taskId, ?ExecutionProjection $expected = null): ExecutionProjection
     {
         for ($iteration = 0; $iteration < $this->iterationLimit; ++$iteration) {
             $projection = $this->gateway->projection($taskId);
+            if ($expected !== null) {
+                $this->assertExpectedProjection($projection, $expected);
+                // Only the first owner read requires an exact watched binding:
+                // subsequent iterations may advance legitimate deterministic stages.
+                $expected = null;
+            }
             $local = $this->journal->load($taskId);
             if ($local !== null && $local->taskId !== $projection->taskId) {
                 throw new RuntimeException('STALE_RUN: runtime task identity conflicts with authoritative projection.');
             }
             if ($projection->attention !== null) {
-                throw new RuntimeException('WAITING_FOR_ATTENTION: ' . $projection->attention->id);
+                throw new WaitingForAttention($projection);
             }
             if ($projection->complete()) {
                 return $projection;
@@ -488,6 +503,25 @@ final readonly class ExecutionCoordinator
         }
 
         throw new RuntimeException('TRANSITION_REJECTED: execution iteration limit reached.');
+    }
+
+    /**
+     * Must run UNDER the Runner execution lock and before journal reconciliation,
+     * workspace acquisition, deterministic stages or provider invocation.
+     */
+    private function assertExpectedProjection(ExecutionProjection $current, ExecutionProjection $expected): void
+    {
+        if ($current->attention !== null
+            || $current->taskId !== $expected->taskId
+            || $current->runId !== $expected->runId
+            || $current->contractRevision !== $expected->contractRevision
+            || $current->profile !== $expected->profile
+            || !hash_equals($current->executionPlanDigest, $expected->executionPlanDigest)
+            || $current->currentStageId !== $expected->currentStageId
+            || $current->currentAttempt !== $expected->currentAttempt
+            || !hash_equals($current->candidateRevision, $expected->candidateRevision)) {
+            throw new RuntimeException('STALE_RUN: watched owner binding changed before locked Runner resume.');
+        }
     }
 
     private function assertRepositoryRoot(StageExecutionBundle $bundle): void
