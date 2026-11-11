@@ -73,7 +73,7 @@ final class AttentionResumeWatcherTest extends TestCase
             },
         );
 
-        self::assertSame($resolved, $watcher->watch('TASK-1', 1, 1));
+        self::assertSame($resolved, $watcher->watch('TASK-1', 1, 2));
         self::assertSame(1, $called);
     }
 
@@ -146,7 +146,7 @@ final class AttentionResumeWatcherTest extends TestCase
         $watcher = self::watcher([$waiting, $revised]);
 
         $this->expectExceptionMessage('STALE_RUN:');
-        $watcher->watch('TASK-1', 1, 1);
+        $watcher->watch('TASK-1', 1, 2);
     }
 
     public function testRefusesAReplacedAttentionWithoutRunning(): void
@@ -156,7 +156,7 @@ final class AttentionResumeWatcherTest extends TestCase
         $watcher = self::watcher([$waiting, $replacement]);
 
         $this->expectExceptionMessage('WAITING_FOR_ATTENTION: a different Attention');
-        $watcher->watch('TASK-1', 1, 1);
+        $watcher->watch('TASK-1', 1, 2);
     }
 
     public function testRefusesRunReplacementWithoutRunning(): void
@@ -166,7 +166,7 @@ final class AttentionResumeWatcherTest extends TestCase
         $watcher = self::watcher([$waiting, $replacement]);
 
         $this->expectExceptionMessage('STALE_RUN:');
-        $watcher->watch('TASK-1', 1, 1);
+        $watcher->watch('TASK-1', 1, 2);
     }
 
     public function testRefusesDisappearingAttentionWithoutOwnerTransition(): void
@@ -177,7 +177,7 @@ final class AttentionResumeWatcherTest extends TestCase
         ]);
 
         $this->expectExceptionMessage('TRANSITION_REJECTED: Attention disappeared');
-        $watcher->watch('TASK-1', 1, 1);
+        $watcher->watch('TASK-1', 1, 2);
     }
 
     public function testTimesOutWithoutAutomaticApproval(): void
@@ -197,7 +197,7 @@ final class AttentionResumeWatcherTest extends TestCase
         );
         $watcher = self::watcher([self::projection('run-1', 1, self::attention()), $complete]);
 
-        self::assertSame($complete, $watcher->watch('TASK-1', 1, 1));
+        self::assertSame($complete, $watcher->watch('TASK-1', 1, 2));
     }
 
     public function testRejectsWhenNothingIsPending(): void
@@ -205,7 +205,7 @@ final class AttentionResumeWatcherTest extends TestCase
         $watcher = self::watcher([self::projection('run-1', 1)]);
 
         $this->expectExceptionMessage('TRANSITION_REJECTED: watch requires');
-        $watcher->watch('TASK-1', 1, 1);
+        $watcher->watch('TASK-1', 1, 2);
     }
 
     public function testRejectsInvalidPollingBounds(): void
