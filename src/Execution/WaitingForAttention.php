@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace voku\AgentLoopRunner\Execution;
 
+use InvalidArgumentException;
 use RuntimeException;
 use voku\AgentLoop\Execution\ExecutionProjection;
 
@@ -17,6 +18,10 @@ final class WaitingForAttention extends RuntimeException
 {
     public function __construct(public readonly ExecutionProjection $projection)
     {
-        parent::__construct('WAITING_FOR_ATTENTION: ' . ($projection->attention?->id ?? 'unknown'));
+        if ($projection->attention === null) {
+            throw new InvalidArgumentException('A WAITING exception requires an owner-projected pending Attention.');
+        }
+
+        parent::__construct('WAITING_FOR_ATTENTION: ' . $projection->attention->id);
     }
 }
