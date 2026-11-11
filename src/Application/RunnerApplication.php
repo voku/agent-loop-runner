@@ -9,6 +9,8 @@ use RuntimeException;
 use Throwable;
 use voku\AgentLoop\Execution\ExecutionGateway;
 use voku\AgentLoopRunner\Config\RunnerConfig;
+use voku\AgentLoopRunner\Execution\WaitingForAttention;
+use voku\AgentLoop\Execution\ExecutionProjection;
 use voku\AgentLoopRunner\Diagnostics\ValidationCommandInspector;
 use voku\AgentLoopRunner\Git\GitCommand;
 use voku\AgentLoopRunner\Host\AgyHostAdapter;
@@ -34,7 +36,8 @@ final readonly class RunnerApplication
             return match ($command) {
                 'doctor' => $this->doctor($task !== null && trim($task) !== '' ? $task : null),
                 'status' => $this->withTask($task, fn (string $id): int => $this->status($id)),
-                'run', 'resume' => $this->withTask($task, fn (string $id): int => $this->execute($id, $command)),
+                'run', 'resume' => $this->withTask($task, fn (string $id): int => $this->execute($id, $command, array_slice($arguments, 2))),
+                'watch' => $this->withTask($task, fn (string $id): int => $this->watch($id, array_slice($arguments, 2))),
                 'cancel' => $this->withTask($task, fn (string $id): int => $this->cancel($id)),
                 'abandon' => $this->withTask($task, fn (string $id): int => $this->abandon($id, array_slice($arguments, 2))),
                 'cleanup' => $this->withTask($task, fn (string $id): int => $this->cleanup($id)),
@@ -127,10 +130,30 @@ final readonly class RunnerApplication
         return ExitCode::OK;
     }
 
-    private function execute(string $taskId, string $command): int
+    /** @param list<string> $options */
+    private function execute(string $taskId, string $command, array $options): int
     {
+        $watch = in_array('--watch', $options, true);
+        $watchCount = count(array_filter($options, static fn (string $option): bool => $option === '--watch'));
+        if ((!$watch && $options !== []) || $watchCount > 1) {
+            return $this->watchUsage();
+        }
+        $watchOptions = array_values(array_filter($options, static fn (string $option): bool => $option !== '--watch'));
+        if ($watch && $this->parseWatchOptions($watchOptions) === null) {
+            return $this->watchUsage();
+        }
         $controls = $this->controls();
-        $projection = $command === 'run' ? $controls->run($taskId) : $controls->resume($taskId);
+        try {
+            $projection = $command === 'run' ? $controls->run($taskId) : $controls->resume($taskId);
+        } catch (WaitingForAttention $exception) {
+            if (!$watch) {
+                throw $exception;
+            }
+
+            // Preserve the exact locked WAITING projection. The human might
+            // have resolved this Attention before watch's first fresh read.
+            return $this->watch($taskId, $watchOptions, $exception->projection);
+        }
         $this->json([
             'task_id' => $projection->taskId,
             'complete' => $projection->complete(),
@@ -138,6 +161,76 @@ final readonly class RunnerApplication
         ]);
 
         return ExitCode::OK;
+    }
+
+    /**
+     * Explicitly opt in to a foreground wait for one current Attention.
+     * Approval still belongs to Loop, and execution still goes through Runner.
+     *
+     * @param list<string> $options
+     */
+    private function watch(string $taskId, array $options, ?ExecutionProjection $waiting = null): int
+    {
+        $parsed = $this->parseWatchOptions($options);
+        if ($parsed === null) {
+            return $this->watchUsage();
+        }
+
+        $controls = $this->controls();
+        $gateway = new ExecutionGateway($this->projectRoot);
+        $watcher = new AttentionResumeWatcher(
+            $gateway->projection(...),
+            $controls->resumeExpected(...),
+            static function (int $seconds): void {
+                sleep($seconds);
+            },
+        );
+
+        $projection = $watcher->watch(
+            $taskId,
+            $parsed['interval-seconds'] ?? 4,
+            $parsed['timeout-seconds'] ?? 900,
+            $waiting,
+        );
+        $this->json([
+            'task_id' => $projection->taskId,
+            'complete' => $projection->complete(),
+            'current_stage_id' => $projection->currentStageId,
+        ]);
+
+        return ExitCode::OK;
+    }
+
+    /**
+     * Watch options must be validated BEFORE any provider execution.
+     *
+     * @param list<string> $options
+     * @return array<string, int>|null
+     */
+    private function parseWatchOptions(array $options): ?array
+    {
+        $parsed = [];
+        foreach ($options as $option) {
+            if (preg_match('/^--(interval-seconds|timeout-seconds)=([1-9][0-9]*)$/D', $option, $matches) !== 1
+                || isset($parsed[$matches[1]])) {
+                return null;
+            }
+            $number = (int) $matches[2];
+            $limit = $matches[1] === 'interval-seconds' ? 60 : 86400;
+            if ($number < 1 || $number > $limit) {
+                return null;
+            }
+            $parsed[$matches[1]] = $number;
+        }
+
+        return $parsed;
+    }
+
+    private function watchUsage(): int
+    {
+        fwrite(STDERR, "Usage: agent-loop-runner watch TASK [--interval-seconds=1..60] [--timeout-seconds=1..86400]\nOr: agent-loop-runner <run|resume> TASK --watch [--interval-seconds=N] [--timeout-seconds=N]\n");
+
+        return ExitCode::USAGE;
     }
 
     private function cancel(string $taskId): int
@@ -233,7 +326,7 @@ final readonly class RunnerApplication
 
     private function usage(): int
     {
-        fwrite(STDERR, "Usage: agent-loop-runner <doctor|status|run|resume|cancel|abandon|cleanup> [TASK]\n");
+        fwrite(STDERR, "Usage: agent-loop-runner <doctor|status|run|resume|watch|cancel|abandon|cleanup> [TASK]\n");
 
         return ExitCode::USAGE;
     }
@@ -260,6 +353,7 @@ final readonly class RunnerApplication
             'STALE_' => ExitCode::STALE_STATE,
             'TRANSITION_REJECTED' => ExitCode::TRANSITION_REJECTED,
             'WAITING_FOR_ATTENTION' => ExitCode::WAITING_FOR_ATTENTION,
+            'WATCH_TIMEOUT' => ExitCode::WATCH_TIMEOUT,
             'PROCESS_CANCELLED' => ExitCode::PROCESS_CANCELLED,
         ] as $prefix => $code) {
             if (str_contains($message, $prefix)) {

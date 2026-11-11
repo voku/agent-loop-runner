@@ -6,6 +6,8 @@ namespace voku\AgentLoopRunner\Tests\Integration\Execution;
 
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use voku\AgentLoopRunner\Application\AttentionResumeWatcher;
+use voku\AgentLoopRunner\Execution\WaitingForAttention;
 use voku\AgentRecallCompiler\CompileRequest;
 use voku\AgentRecallCompiler\CompileResult;
 use voku\AgentLoop\Execution\ExecutionGateway;
@@ -16,6 +18,7 @@ use voku\AgentLoop\Workflow\TaskContractStore;
 use voku\AgentLoop\Workflow\WorkflowApproveCommand;
 use voku\AgentLoop\Workflow\WorkflowExecutionProfileCommand;
 use voku\AgentLoop\Workflow\WorkflowPlanCommand;
+use voku\AgentLoop\Workflow\WorkflowAttentionCommand;
 use voku\AgentLoopRunner\Config\RunnerConfig;
 use voku\AgentLoopRunner\Diagnostics\DiagnosticLogStore;
 use voku\AgentLoopRunner\Execution\AgentLoopExecutionGateway;
@@ -126,6 +129,94 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
         self::assertSame($this->originalSource, file_get_contents($this->root . '/src/Foo.php'), 'Runner work must not mutate the user checkout.');
         self::assertSame('', $this->git(['diff', '--cached', '--name-only']), 'Runner work must not mutate the user index.');
         self::assertSame('', $this->git(['status', '--porcelain', '--untracked-files=no']), 'Tracked user checkout state must remain clean.');
+    }
+
+    public function testRealLoopAttentionCanResumeWithoutSecondManualRunnerCommand(): void
+    {
+        $taskId = 'TASK-HUMAN-RESUME';
+        ob_start();
+        try {
+            self::assertSame(0, (new WorkflowPlanCommand($this->root))->run([
+                $taskId, '--by', 'owner', '--file', 'src/Foo.php',
+                '--goal', 'Verify resumed execution after an actual external Attention.',
+                '--validation', 'php -l src/Foo.php',
+                '--base-commit', $this->base,
+            ]));
+            self::assertSame(0, (new WorkflowApproveCommand($this->root))->run([
+                $taskId,
+                '--revision', (string) (new TaskContractStore($this->root))->load($taskId)->revision,
+                '--by', 'owner',
+            ]));
+            self::assertSame(0, (new WorkflowExecutionProfileCommand($this->root))->run([
+                $taskId, '--profile', 'surgical', '--by', 'owner',
+            ]));
+        } finally {
+            ob_end_clean();
+        }
+
+        ob_start();
+        try {
+            $exit = (new HostFrontDoorCommand(
+                $this->root,
+                static function (CompileRequest $request): CompileResult {
+                    mkdir($request->outputDirectory, 0o775, true);
+                    file_put_contents($request->outputDirectory . '/meta.json', json_encode([
+                        'schema_version' => '1.0',
+                        'task_id' => 'TASK-HUMAN-RESUME',
+                        'compilation_id' => 'attention-fixture',
+                        'selected_guidance' => [],
+                        'selected_constraints' => [],
+                        'output_hashes' => [],
+                    ], JSON_THROW_ON_ERROR));
+                    file_put_contents($request->outputDirectory . '/system.md', "# Recall\nStay governed.\n");
+
+                    return new CompileResult($request->outputDirectory, 'attention-fixture', str_repeat('a', 64));
+                },
+            ))->run('enter', [$taskId, '--format=json']);
+        } finally {
+            ob_end_clean();
+        }
+        self::assertSame(0, $exit);
+
+        $host = new AttentionOnceHost();
+        $coordinator = $this->coordinator($host);
+        $snapshot = null;
+        try {
+            $coordinator->run($taskId);
+            self::fail('The first external stage must require a real Loop-owned Attention.');
+        } catch (WaitingForAttention $pending) {
+            $snapshot = $pending->projection;
+        }
+
+        self::assertNotNull($snapshot->attention);
+        self::assertSame('investigate', $snapshot->currentStageId);
+        self::assertSame(1, $host->attentionRequests);
+
+        // Public human-owned workflow transition is present in the locked
+        // released agent-loop, not just in current main's newer service API.
+        ob_start();
+        try {
+            $resolutionExit = (new WorkflowAttentionCommand($this->root))->run([
+                $taskId, '--resolve', $snapshot->attention->id, '--by', 'independent-human',
+            ]);
+        } finally {
+            ob_end_clean();
+        }
+        self::assertSame(0, $resolutionExit);
+        self::assertNull((new ExecutionGateway($this->root))->projection($taskId)->attention);
+
+        $watcher = new AttentionResumeWatcher(
+            fn (string $id): \voku\AgentLoop\Execution\ExecutionProjection => (new ExecutionGateway($this->root))->projection($id),
+            static fn (string $id, \voku\AgentLoop\Execution\ExecutionProjection $accepted): \voku\AgentLoop\Execution\ExecutionProjection => $coordinator->resumeExpected($id, $accepted),
+            static function (int $seconds): void {
+                self::fail('Already resolved Attention must resume immediately, without sleeping.');
+            },
+        );
+        $done = $watcher->watch($taskId, 1, 30, $snapshot);
+        self::assertTrue($done->complete());
+        self::assertSame(1, $host->attentionRequests);
+        self::assertGreaterThan(0, $host->normalExecutions());
+        self::assertNull((new ExecutionGateway($this->root))->projection($taskId)->attention);
     }
 
     public function testRealCodexAdapterProducesFreshProcessContextEvidenceWithoutCredentials(): void
@@ -401,7 +492,7 @@ BASH;
         return $path;
     }
 
-    private function coordinator(OutcomeHost $host): ExecutionCoordinator
+    private function coordinator(HostAdapter $host): ExecutionCoordinator
     {
         $layout = new RunnerLayout($this->root);
         $supervisor = new ForegroundProcessSupervisor();
@@ -490,6 +581,64 @@ final class OutcomeHost implements HostAdapter
         return new HostExecutionResult(
             'fake',
             new ProcessResult(0, $stdout, '', false, $startedAt, '2026-01-01T00:01:00+00:00'),
+        );
+    }
+}
+
+/**
+ * Deterministic fake provider: the very first investigator result requests a
+ * real, user-resolvable Loop Attention; all later stages use OutcomeHost.
+ */
+final class AttentionOnceHost implements HostAdapter
+{
+    public int $attentionRequests = 0;
+    private readonly OutcomeHost $delegate;
+
+    public function __construct()
+    {
+        $this->delegate = new OutcomeHost();
+    }
+
+    public function id(): string
+    {
+        return $this->delegate->id();
+    }
+
+    public function probe(ProcessSupervisor $processSupervisor, string $workingDirectory, array $environment): HostAvailability
+    {
+        return $this->delegate->probe($processSupervisor, $workingDirectory, $environment);
+    }
+
+    public function normalExecutions(): int
+    {
+        return $this->delegate->executions;
+    }
+
+    public function execute(HostExecutionRequest $request, ProcessSupervisor $processSupervisor): HostExecutionResult
+    {
+        if ($request->roleId !== 'investigator' || $this->attentionRequests !== 0) {
+            return $this->delegate->execute($request, $processSupervisor);
+        }
+
+        ++$this->attentionRequests;
+        $startedAt = '2026-01-01T00:00:00+00:00';
+        $request->observer->started(49_999, $startedAt);
+
+        return new HostExecutionResult(
+            'fake',
+            new ProcessResult(
+                0,
+                'AGENT_LOOP_STAGE_RESULT ' . json_encode([
+                    'outcome' => 'needs_clarification',
+                    'summary' => 'A human must clarify first.',
+                    'artifact_references' => [],
+                    'validation_references' => [],
+                ], JSON_THROW_ON_ERROR) . "\n",
+                '',
+                false,
+                $startedAt,
+                '2026-01-01T00:01:00+00:00',
+            ),
         );
     }
 }

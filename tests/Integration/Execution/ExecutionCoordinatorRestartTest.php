@@ -7,6 +7,8 @@ namespace voku\AgentLoopRunner\Tests\Integration\Execution;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
+use voku\AgentLoop\Execution\AttentionKind;
+use voku\AgentLoop\Execution\AttentionRequest;
 use voku\AgentLoop\Execution\ExecutionEnvironmentObservation;
 use voku\AgentLoop\Execution\ExecutionProfileName;
 use voku\AgentLoop\Execution\ExecutionProjection;
@@ -23,6 +25,7 @@ use voku\AgentLoopRunner\Execution\CoordinatorHook;
 use voku\AgentLoopRunner\Execution\ExecutionCoordinator;
 use voku\AgentLoopRunner\Execution\ExecutionGatewayPort;
 use voku\AgentLoopRunner\Execution\NullCoordinatorHook;
+use voku\AgentLoopRunner\Execution\WaitingForAttention;
 use voku\AgentLoopRunner\Git\GitCommand;
 use voku\AgentLoopRunner\Host\HostAdapter;
 use voku\AgentLoopRunner\Host\HostAvailability;
@@ -268,6 +271,70 @@ final class ExecutionCoordinatorRestartTest extends TestCase
         }
     }
 
+    public function testWaitingExceptionCarriesExactLockedAttentionSnapshot(): void
+    {
+        $gateway = new FakeGateway($this->root, $this->base);
+        $gateway->attention = new AttentionRequest(
+            'attention-1', 'TASK', 'RUN', AttentionKind::APPROVAL_REQUIRED,
+            'Human decision needed', 'builder', '2026-11-11T12:00:00Z',
+        );
+        $host = new MutatingCountingHost();
+        try {
+            $this->coordinator($gateway, $host, new NullCoordinatorHook())->run('TASK');
+            self::fail('A pending owner Attention must interrupt execution.');
+        } catch (WaitingForAttention $exception) {
+            self::assertSame('attention-1', $exception->projection->attention?->id);
+            self::assertSame('RUN', $exception->projection->runId);
+            self::assertSame('builder', $exception->projection->currentStageId);
+        }
+        self::assertSame(0, $host->executions);
+        self::assertNull($this->journal->load('TASK'));
+    }
+
+    public function testResumeExpectedRejectsChangedRunStageAndAttemptUnderLock(): void
+    {
+        $gateway = new FakeGateway($this->root, $this->base);
+        $host = new MutatingCountingHost();
+        $current = $gateway->projection('TASK');
+
+        foreach (['run', 'stage', 'attempt', 'candidate'] as $drift) {
+            $expected = new ExecutionProjection(
+                $current->taskId,
+                $drift === 'run' ? 'old-run' : $current->runId,
+                $current->contractRevision,
+                $current->profile,
+                $current->executionPlanDigest,
+                $drift === 'stage' ? 'old-stage' : $current->currentStageId,
+                $drift === 'attempt' ? 99 : $current->currentAttempt,
+                null,
+                $current->handoffs,
+                $drift === 'candidate' ? 'old-candidate' : $current->candidateRevision,
+            );
+
+            try {
+                $this->coordinator($gateway, $host, new NullCoordinatorHook())->resumeExpected('TASK', $expected);
+                self::fail('Expected stale locked owner binding for ' . $drift);
+            } catch (RuntimeException $exception) {
+                self::assertStringStartsWith('STALE_RUN: watched owner binding', $exception->getMessage());
+            }
+            self::assertSame(0, $host->executions, 'No host may start for ' . $drift);
+            self::assertSame(0, $host->probes, 'Host availability must not be probed for ' . $drift);
+            self::assertNull($this->journal->load('TASK'));
+        }
+    }
+
+    public function testResumeExpectedWithExactOwnerBindingCanExecute(): void
+    {
+        $gateway = new FakeGateway($this->root, $this->base);
+        $host = new MutatingCountingHost();
+
+        $result = $this->coordinator($gateway, $host, new NullCoordinatorHook())
+            ->resumeExpected('TASK', $gateway->projection('TASK'));
+
+        self::assertTrue($result->complete());
+        self::assertSame(1, $host->executions);
+    }
+
     private function coordinator(FakeGateway $gateway, HostAdapter $host, CoordinatorHook $hook): ExecutionCoordinator
     {
         return new ExecutionCoordinator(
@@ -308,6 +375,7 @@ final class FakeGateway implements ExecutionGatewayPort
     public ?string $lastSubmissionId = null;
     public ?string $lastContextId = null;
     public ?ExecutionEnvironmentObservation $lastEnvironmentObservation = null;
+    public ?AttentionRequest $attention = null;
 
     public function __construct(private readonly string $root, private readonly string $base)
     {
@@ -323,7 +391,7 @@ final class FakeGateway implements ExecutionGatewayPort
             'sha256:' . str_repeat('a', 64),
             $this->complete ? null : 'builder',
             1,
-            null,
+            $this->attention,
             [],
             $this->base,
         );
