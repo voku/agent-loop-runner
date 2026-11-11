@@ -35,6 +35,7 @@ final readonly class RunnerApplication
                 'doctor' => $this->doctor($task !== null && trim($task) !== '' ? $task : null),
                 'status' => $this->withTask($task, fn (string $id): int => $this->status($id)),
                 'run', 'resume' => $this->withTask($task, fn (string $id): int => $this->execute($id, $command)),
+                'watch' => $this->withTask($task, fn (string $id): int => $this->watch($id, array_slice($arguments, 2))),
                 'cancel' => $this->withTask($task, fn (string $id): int => $this->cancel($id)),
                 'abandon' => $this->withTask($task, fn (string $id): int => $this->abandon($id, array_slice($arguments, 2))),
                 'cleanup' => $this->withTask($task, fn (string $id): int => $this->cleanup($id)),
@@ -140,6 +141,59 @@ final readonly class RunnerApplication
         return ExitCode::OK;
     }
 
+    /**
+     * Explicitly opt in to a foreground wait for one current Attention.
+     * Approval still belongs to Loop, and execution still goes through Runner.
+     *
+     * @param list<string> $options
+     */
+    private function watch(string $taskId, array $options): int
+    {
+        $parsed = [];
+        foreach ($options as $option) {
+            if (preg_match('/^--(interval-seconds|timeout-seconds)=([1-9][0-9]*)$/D', $option, $matches) !== 1
+                || isset($parsed[$matches[1]])) {
+                return $this->watchUsage();
+            }
+            $number = (int) $matches[2];
+            $limit = $matches[1] === 'interval-seconds' ? 60 : 86400;
+            if ($number < 1 || $number > $limit) {
+                return $this->watchUsage();
+            }
+            $parsed[$matches[1]] = $number;
+        }
+
+        $controls = $this->controls();
+        $gateway = new ExecutionGateway($this->projectRoot);
+        $watcher = new AttentionResumeWatcher(
+            $gateway->projection(...),
+            $controls->resume(...),
+            static function (int $seconds): void {
+                sleep($seconds);
+            },
+        );
+
+        $projection = $watcher->watch(
+            $taskId,
+            $parsed['interval-seconds'] ?? 4,
+            $parsed['timeout-seconds'] ?? 900,
+        );
+        $this->json([
+            'task_id' => $projection->taskId,
+            'complete' => $projection->complete(),
+            'current_stage_id' => $projection->currentStageId,
+        ]);
+
+        return ExitCode::OK;
+    }
+
+    private function watchUsage(): int
+    {
+        fwrite(STDERR, "Usage: agent-loop-runner watch TASK [--interval-seconds=1..60] [--timeout-seconds=1..86400]\\n");
+
+        return ExitCode::USAGE;
+    }
+
     private function cancel(string $taskId): int
     {
         $this->controls()->cancel($taskId);
@@ -233,7 +287,7 @@ final readonly class RunnerApplication
 
     private function usage(): int
     {
-        fwrite(STDERR, "Usage: agent-loop-runner <doctor|status|run|resume|cancel|abandon|cleanup> [TASK]\n");
+        fwrite(STDERR, "Usage: agent-loop-runner <doctor|status|run|resume|watch|cancel|abandon|cleanup> [TASK]\n");
 
         return ExitCode::USAGE;
     }
@@ -260,6 +314,7 @@ final readonly class RunnerApplication
             'STALE_' => ExitCode::STALE_STATE,
             'TRANSITION_REJECTED' => ExitCode::TRANSITION_REJECTED,
             'WAITING_FOR_ATTENTION' => ExitCode::WAITING_FOR_ATTENTION,
+            'WATCH_TIMEOUT' => ExitCode::WATCH_TIMEOUT,
             'PROCESS_CANCELLED' => ExitCode::PROCESS_CANCELLED,
         ] as $prefix => $code) {
             if (str_contains($message, $prefix)) {
