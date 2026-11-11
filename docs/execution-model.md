@@ -89,6 +89,32 @@ Process exit status never implies acceptance; only Loop accepts a stage result.
 
 **Runner killed while the provider process was running.** If the Runner process itself is killed (for example `kill -9`) after it recorded `process_started` and before it recorded the process exit, the journal keeps `process_started` with no exit evidence, and the provider process is not stopped with the Runner. `run` and `resume` then fail closed with `PROCESS_FAILED: incomplete prior process observation requires operator evidence`, and `cancel` fails with `owned process identity is stale` once the process is gone. No stage is re-run and Loop's projection is unchanged. The operator exit is `abandon` followed by `cleanup`; see [Abandoning a stale attempt](#abandoning-a-stale-attempt).
 
+### Optional foreground Attention watch
+
+After an Attention is opened, an operator or a managed external supervisor may run
+`agent-loop-runner watch TASK --interval-seconds=4 --timeout-seconds=900`
+in a **persistent foreground process**. This is an opt-in helper, not a browser
+timer, auto-approver, or new execution authority. It starts only if a stage-bound
+Attention is currently pending. It reads fresh Loop projections on a bounded
+interval and returns `WATCH_TIMEOUT` (exit 18) when the configured wait elapses.
+Stop it with the terminal/process manager; it has no independent background lifecycle.
+
+The watcher refuses a changed Task/Run/Contract/plan/candidate, a different
+Attention ID, and a cleared Attention without an observable stage/attempt change.
+A normal resolution advances the attempt; review-change resolution may route to
+another stage. Once Loop exposes an authorized new stage, the watcher calls the
+**existing locked Runner resume** exactly once. Runner re-reads Loop authority
+before any provider invocation; concurrent callers remain protected by Runner's
+per-task lock. If another actor completed the Run, no provider is started.
+Unreadable projections or stale evidence fail closed rather than being treated as
+approval. Multiple overlapping foreground watchers are unnecessary; use one
+supervised watcher per task.
+
+No Browser/Agent UI page must remain open for this command to work, but the
+process must stay running until resolution or timeout. This does not yet provide
+a durable multi-task service or automatic watcher creation when `run` first
+encounters Attention.
+
 ## Abandoning a stale attempt
 
 If the Runner itself is killed (for example `kill -9`) after it recorded `process_started` and before it recorded the process exit, the journal holds an attempt with no exit evidence. `run` and `resume` then fail closed with `PROCESS_FAILED: incomplete prior process observation requires operator evidence`, and `cancel` fails with `owned process identity is stale` because there is no live process left to signal.
