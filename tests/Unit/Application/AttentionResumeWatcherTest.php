@@ -28,7 +28,8 @@ final class AttentionResumeWatcherTest extends TestCase
 
                 return array_shift($observations) ?? throw new RuntimeException('Unexpected projection read.');
             },
-            static function (string $taskId) use (&$resumeCalls, $resolved): ExecutionProjection {
+            static function (string $taskId, ExecutionProjection $accepted) use (&$resumeCalls, $resolved): ExecutionProjection {
+                self::assertSame($resolved, $accepted);
                 self::assertSame('TASK-1', $taskId);
                 ++$resumeCalls;
 
@@ -61,7 +62,8 @@ final class AttentionResumeWatcherTest extends TestCase
             static function (string $taskId) use (&$observations): ExecutionProjection {
                 return array_shift($observations) ?? throw new RuntimeException('Unexpected projection read: ' . $taskId);
             },
-            static function (string $taskId) use (&$called, $resolved): ExecutionProjection {
+            static function (string $taskId, ExecutionProjection $accepted) use (&$called, $resolved): ExecutionProjection {
+                self::assertSame($resolved, $accepted);
                 self::assertSame('TASK-1', $taskId);
                 ++$called;
 
@@ -73,6 +75,65 @@ final class AttentionResumeWatcherTest extends TestCase
 
         self::assertSame($resolved, $watcher->watch('TASK-1', 1, 1));
         self::assertSame(1, $called);
+    }
+
+    public function testResolutionBetweenRunAndWatchStartsResumesWithoutSleeping(): void
+    {
+        $waiting = self::projection('run-1', 1, self::attention());
+        $resolved = self::projection('run-1', 2);
+        $calls = 0;
+        $watcher = new AttentionResumeWatcher(
+            static fn (string $taskId): ExecutionProjection => $resolved,
+            static function (string $taskId, ExecutionProjection $accepted) use ($resolved, &$calls): ExecutionProjection {
+                self::assertSame($resolved, $accepted);
+                ++$calls;
+
+                return $resolved;
+            },
+            static function (int $seconds): void {
+                self::fail('Already resolved Attention must not incur a sleep.');
+            },
+        );
+
+        self::assertSame($resolved, $watcher->watch('TASK-1', 4, 900, $waiting));
+        self::assertSame(1, $calls);
+    }
+
+    public function testSlowProjectionReadCannotResumeAfterMonotonicDeadline(): void
+    {
+        $now = 0;
+        $waiting = self::projection('run-1', 1, self::attention());
+        $resolved = self::projection('run-1', 2);
+        $reads = [$waiting, $resolved];
+        $resumeCalls = 0;
+
+        $watcher = new AttentionResumeWatcher(
+            static function (string $taskId) use (&$reads, &$now): ExecutionProjection {
+                $now += 1_000_000_000;
+
+                return array_shift($reads) ?? throw new RuntimeException('Unexpected owner read.');
+            },
+            static function (string $taskId, ExecutionProjection $accepted) use (&$resumeCalls): ExecutionProjection {
+                ++$resumeCalls;
+
+                return $accepted;
+            },
+            static function (int $seconds) use (&$now): void {
+                $now += $seconds * 1_000_000_000;
+            },
+            static function () use (&$now): int {
+                return $now;
+            },
+        );
+
+        try {
+            $watcher->watch('TASK-1', 1, 3);
+            self::fail('Expired owner read cannot authorize a resume.');
+        } catch (RuntimeException $exception) {
+            self::assertStringStartsWith('WATCH_TIMEOUT:', $exception->getMessage());
+        }
+
+        self::assertSame(0, $resumeCalls);
     }
 
     public function testRefusesCandidateDrift(): void
@@ -159,16 +220,22 @@ final class AttentionResumeWatcherTest extends TestCase
      */
     private static function watcher(array $observations): AttentionResumeWatcher
     {
+        $now = 0;
+
         return new AttentionResumeWatcher(
             static function (string $taskId) use (&$observations): ExecutionProjection {
                 self::assertSame('TASK-1', $taskId);
 
                 return array_shift($observations) ?? throw new RuntimeException('Unexpected projection read.');
             },
-            static function (string $taskId): ExecutionProjection {
+            static function (string $taskId, ExecutionProjection $accepted): ExecutionProjection {
                 throw new RuntimeException('Runner must not resume: ' . $taskId);
             },
-            static function (int $seconds): void {
+            static function (int $seconds) use (&$now): void {
+                $now += $seconds * 1_000_000_000;
+            },
+            static function () use (&$now): int {
+                return $now;
             },
         );
     }
