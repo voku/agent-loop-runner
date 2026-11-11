@@ -73,6 +73,8 @@ vendor/bin/agent-loop-runner run TASK-123
 # 4. Resume an interrupted execution or cancel an active process
 #    (a process that is already gone: `abandon TASK --by <actor> --reason <text>`)
 vendor/bin/agent-loop-runner resume TASK-123
+# Alternatively, leave a bounded foreground watcher running while Loop awaits a decision:
+vendor/bin/agent-loop-runner watch TASK-123 --interval-seconds=4 --timeout-seconds=900
 vendor/bin/agent-loop-runner cancel TASK-123
 
 # 5. After complete: true, adopt the candidate from the Run worktree into your
@@ -90,6 +92,7 @@ vendor/bin/agent-loop-runner cleanup TASK-123
 | `status` | `agent-loop-runner status TASK` | Inspect execution status, active Run bindings, workspace state, and stage attempts. |
 | `run` | `agent-loop-runner run TASK` | Execute only the currently authorized external stage in an isolated Git worktree. Exit code `17` (`PROCESS_CANCELLED`) means an active provider attempt was cancelled; its output is not submitted. |
 | `resume` | `agent-loop-runner resume TASK` | Reconcile and resume an interrupted authorized external stage. Exit code `16` (`WAITING_FOR_ATTENTION`) means Loop holds an open Attention that only `agent-loop` resolves; exit code `17` (`PROCESS_CANCELLED`) means the active provider attempt was cancelled and its output was not submitted. See [Attention and recovery](docs/execution-model.md#attention-and-recovery). |
+| `watch` | `agent-loop-runner watch TASK [--interval-seconds=4] [--timeout-seconds=900]` | Opt-in foreground wait for an **already-pending** Loop Attention. After a validated owner transition, execute Runner's guarded resume once. It never approves, never bypasses fresh authority, stops on stale/replaced Attention, and times out with exit code `18` (maximum timeout 86400 seconds). This is not a background daemon or browser timer. See [Attention and recovery](docs/execution-model.md#attention-and-recovery). |
 | `cancel` | `agent-loop-runner cancel TASK` | Terminate the active provider process and persist cancellation. The in-flight `run` or `resume` exits with code `17`; inspect any worktree edits before cleanup. |
 | `abandon` | `agent-loop-runner abandon TASK --by <actor> --reason <text>` | Operator evidence that a recorded provider process no longer exists (for example after the Runner itself was killed): moves a stale `process_started` attempt to `cancelled` so `cleanup` can retire it. Refuses a process that is still running (use `cancel`). See [Abandoning a stale attempt](docs/execution-model.md#abandoning-a-stale-attempt). |
 | `cleanup` | `agent-loop-runner cleanup TASK` | Remove the reconciled clean runner workspace after stage completion. |
