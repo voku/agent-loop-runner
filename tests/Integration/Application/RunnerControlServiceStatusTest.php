@@ -7,6 +7,8 @@ namespace voku\AgentLoopRunner\Tests\Integration\Application;
 use PHPUnit\Framework\TestCase;
 use voku\AgentRecallCompiler\CompileRequest;
 use voku\AgentRecallCompiler\CompileResult;
+use voku\AgentLoop\Execution\ExecutionPlanStore;
+use voku\AgentLoop\Execution\ExecutionStateStore;
 use voku\AgentLoop\Workflow\HostFrontDoorCommand;
 use voku\AgentLoop\Workflow\TaskContractStore;
 use voku\AgentLoop\Workflow\WorkflowApproveCommand;
@@ -84,7 +86,22 @@ final class RunnerControlServiceStatusTest extends TestCase
         ob_end_clean();
         self::assertSame(0, $exit);
 
+        $planPath = (new ExecutionPlanStore($this->root))->path('TASK-1');
+        $statePath = (new ExecutionStateStore($this->root))->path('TASK-1');
+        if (is_file($statePath)) {
+            self::assertTrue(unlink($statePath));
+        }
+        if (is_file($planPath)) {
+            self::assertTrue(unlink($planPath));
+        }
+
         $service = new RunnerControlService($this->root);
+        self::assertNull($service->observedAttempt('TASK-1'));
+        self::assertFileDoesNotExist($planPath);
+        self::assertFileDoesNotExist($statePath);
+
+        // The explicit status/control API may still prepare authority when
+        // used for an actual control, unlike the read-only observation API.
         $status = $service->status('TASK-1');
 
         self::assertSame('TASK-1', $status->authority->taskId);
