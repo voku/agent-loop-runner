@@ -15,6 +15,9 @@ use voku\AgentLoop\Workflow\WorkflowApproveCommand;
 use voku\AgentLoop\Workflow\WorkflowExecutionProfileCommand;
 use voku\AgentLoop\Workflow\WorkflowPlanCommand;
 use voku\AgentLoopRunner\Application\RunnerControlService;
+use voku\AgentLoopRunner\RunnerLayout;
+use voku\AgentLoopRunner\Runtime\RuntimeAttempt;
+use voku\AgentLoopRunner\Runtime\RuntimeJournal;
 
 final class RunnerControlServiceStatusTest extends TestCase
 {
@@ -114,6 +117,30 @@ final class RunnerControlServiceStatusTest extends TestCase
         self::assertNotNull($serialized['required_host']);
         self::assertSame('investigator', $serialized['required_host']['role_id']);
         self::assertSame('codex', $serialized['required_host']['host_id']);
+    }
+
+    public function testObservedAttemptReturnsJournalWithoutAskingExecutionAuthority(): void
+    {
+        $journal = new RuntimeJournal(new RunnerLayout($this->root));
+        $attempt = new RuntimeAttempt(
+            'TASK-1',
+            'run-1',
+            1,
+            'sha256:' . str_repeat('a', 64),
+            'build',
+            1,
+            'codex',
+            'workspace-1',
+            'submission-1',
+            updatedAt: '2026-11-13T20:00:00Z',
+        );
+        $journal->save($attempt);
+
+        $observed = (new RunnerControlService($this->root))->observedAttempt('TASK-1');
+        self::assertNotNull($observed);
+        self::assertSame($attempt->toArray(), $observed->toArray());
+        self::assertFileDoesNotExist((new ExecutionPlanStore($this->root))->path('TASK-1'));
+        self::assertFileDoesNotExist((new ExecutionStateStore($this->root))->path('TASK-1'));
     }
 
     /** @param list<string> $arguments */
