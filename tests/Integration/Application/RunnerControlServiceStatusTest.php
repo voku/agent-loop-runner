@@ -16,6 +16,7 @@ use voku\AgentLoop\Workflow\WorkflowExecutionProfileCommand;
 use voku\AgentLoop\Workflow\WorkflowPlanCommand;
 use voku\AgentLoopRunner\Application\RunnerControlService;
 use voku\AgentLoopRunner\RunnerLayout;
+use voku\AgentLoopRunner\Runtime\CorruptRuntimeJournal;
 use voku\AgentLoopRunner\Runtime\RuntimeAttempt;
 use voku\AgentLoopRunner\Runtime\RuntimeJournal;
 
@@ -141,6 +142,42 @@ final class RunnerControlServiceStatusTest extends TestCase
         self::assertSame($attempt->toArray(), $observed->toArray());
         self::assertFileDoesNotExist((new ExecutionPlanStore($this->root))->path('TASK-1'));
         self::assertFileDoesNotExist((new ExecutionStateStore($this->root))->path('TASK-1'));
+    }
+
+    public function testObservedAttemptRejectsCrossTaskJournalWithoutModifyingIt(): void
+    {
+        $layout = new RunnerLayout($this->root);
+        $journal = new RuntimeJournal($layout);
+        $otherTaskAttempt = new RuntimeAttempt(
+            'TASK-2',
+            'run-2',
+            1,
+            'sha256:' . str_repeat('b', 64),
+            'build',
+            1,
+            'codex',
+            'workspace-2',
+            'submission-2',
+            updatedAt: '2026-11-14T00:00:00Z',
+        );
+        $journal->save($otherTaskAttempt);
+
+        $sourcePath = $layout->runtime('TASK-2');
+        $targetPath = $layout->runtime('TASK-1');
+        self::assertTrue(rename($sourcePath, $targetPath));
+        $before = file_get_contents($targetPath);
+        self::assertIsString($before);
+
+        try {
+            (new RunnerControlService($this->root))->observedAttempt('TASK-1');
+            self::fail('An attempt belonging to another task must not be shown as current Runner evidence.');
+        } catch (CorruptRuntimeJournal $exception) {
+            self::assertStringContainsString('task identity', $exception->getMessage());
+        } finally {
+            self::assertSame($before, file_get_contents($targetPath));
+            self::assertFileDoesNotExist((new ExecutionPlanStore($this->root))->path('TASK-1'));
+            self::assertFileDoesNotExist((new ExecutionStateStore($this->root))->path('TASK-1'));
+        }
     }
 
     /** @param list<string> $arguments */
