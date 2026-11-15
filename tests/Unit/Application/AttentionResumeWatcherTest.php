@@ -128,6 +128,72 @@ final class AttentionResumeWatcherTest extends TestCase
         self::assertSame(AttentionResumeWatcher::MAX_ATTENTION_BOUNDARIES, $resumeCalls);
     }
 
+    public function testOneSecondWatchStillObservesOwnerWhenFractionalTimeRemains(): void
+    {
+        $waiting = self::projection('run-1', 1, self::attention());
+        $resolved = self::projection('run-1', 2);
+        $clockValues = [0, 600_000_000, 700_000_000, 800_000_000, 900_000_000];
+        $observeCalls = 0;
+        $resumeCalls = 0;
+        $watcher = new AttentionResumeWatcher(
+            static function (string $taskId) use (&$observeCalls, $resolved): ExecutionProjection {
+                ++$observeCalls;
+
+                return $resolved;
+            },
+            static function (string $taskId, ExecutionProjection $accepted) use (&$resumeCalls, $resolved): ExecutionProjection {
+                self::assertSame($resolved, $accepted);
+                ++$resumeCalls;
+
+                return $resolved;
+            },
+            static function (int $seconds): void {
+                self::fail('A just-resolved owner projection must not sleep.');
+            },
+            static function () use (&$clockValues): int {
+                return array_shift($clockValues) ?? throw new RuntimeException('Unexpected clock read.');
+            },
+        );
+
+        self::assertSame($resolved, $watcher->watchAndResume('TASK-1', 1, 1, $waiting));
+        self::assertSame(1, $observeCalls);
+        self::assertSame(1, $resumeCalls);
+    }
+
+    public function testAllAttentionBoundariesShareOneAbsoluteDeadline(): void
+    {
+        $waiting = self::projection('run-1', 1, self::attention());
+        $resolved = self::projection('run-1', 2);
+        $clockValues = [0, 100_000_000, 2_000_000_000, 10_500_000_000];
+        $resumeCalls = 0;
+        $watcher = new AttentionResumeWatcher(
+            static function (string $taskId) use (&$clockValues, $resolved): ExecutionProjection {
+                $clockValues = [10_500_000_000];
+
+                return $resolved;
+            },
+            static function (string $taskId, ExecutionProjection $accepted) use (&$resumeCalls): ExecutionProjection {
+                ++$resumeCalls;
+
+                return $accepted;
+            },
+            static function (int $seconds): void {
+            },
+            static function () use (&$clockValues): int {
+                return array_shift($clockValues) ?? throw new RuntimeException('Unexpected clock read.');
+            },
+        );
+
+        try {
+            $watcher->watchAndResume('TASK-1', 1, 10, $waiting);
+            self::fail('An owner resolution after the original deadline must not resume.');
+        } catch (RuntimeException $exception) {
+            self::assertStringStartsWith('WATCH_TIMEOUT:', $exception->getMessage());
+        }
+
+        self::assertSame(0, $resumeCalls);
+    }
+
     public function testReviewChangesMayResumeInDifferentAuthorizedStage(): void
     {
         $attention = new AttentionRequest(

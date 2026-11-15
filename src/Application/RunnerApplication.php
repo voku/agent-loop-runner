@@ -353,6 +353,7 @@ final readonly class RunnerApplication
             'STALE_' => ExitCode::STALE_STATE,
             'TRANSITION_REJECTED' => ExitCode::TRANSITION_REJECTED,
             'WAITING_FOR_ATTENTION' => ExitCode::WAITING_FOR_ATTENTION,
+            'WATCH_LIMIT' => ExitCode::WAITING_FOR_ATTENTION,
             'WATCH_TIMEOUT' => ExitCode::WATCH_TIMEOUT,
             'PROCESS_CANCELLED' => ExitCode::PROCESS_CANCELLED,
         ] as $prefix => $code) {

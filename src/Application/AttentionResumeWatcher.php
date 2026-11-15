@@ -52,8 +52,23 @@ final readonly class AttentionResumeWatcher
             throw new InvalidArgumentException('Watch interval must be 1..60 seconds and timeout must be 1..86400 seconds.');
         }
 
-        // The deadline covers all read and sleep time, not just requested sleep.
-        $deadline = ($this->clock)() + $maxWaitSeconds * 1_000_000_000;
+        return $this->watchUntilDeadline(
+            $taskId,
+            $intervalSeconds,
+            ($this->clock)() + $maxWaitSeconds * 1_000_000_000,
+            $waiting,
+        );
+    }
+
+    /**
+     * @param ExecutionProjection|null $waiting Snapshot obtained from the prior locked WAITING exception.
+     */
+    private function watchUntilDeadline(
+        string $taskId,
+        int $intervalSeconds,
+        int $deadline,
+        ?ExecutionProjection $waiting,
+    ): ExecutionProjection {
         $initial = $waiting ?? ($this->observe)($taskId);
         $pending = $initial->attention;
         if ($initial->taskId !== $taskId) {
@@ -113,6 +128,10 @@ final readonly class AttentionResumeWatcher
 
             // Even after this poll, the Run can change before the lock is acquired.
             // Pass the accepted snapshot into the locked resume and re-check it there.
+            if (($this->clock)() >= $deadline) {
+                throw new RuntimeException('WATCH_TIMEOUT: Attention was not resolved within the configured waiting window.');
+            }
+
             return ($this->resume)($taskId, $current);
         }
     }
@@ -134,16 +153,12 @@ final readonly class AttentionResumeWatcher
         $deadline = ($this->clock)() + $maxWaitSeconds * 1_000_000_000;
         $resumedBoundaries = 0;
         while (true) {
-            $remaining = $deadline - ($this->clock)();
-            if ($remaining < 1_000_000_000) {
+            if (($this->clock)() >= $deadline) {
                 throw new RuntimeException('WATCH_TIMEOUT: Attention was not resolved within the configured waiting window.');
             }
 
-            // Floor the remainder so each inner wait remains within the one
-            // monotonic deadline instead of rounding a later boundary outward.
-            $remainingSeconds = min($maxWaitSeconds, intdiv($remaining, 1_000_000_000));
             try {
-                return $this->watch($taskId, $intervalSeconds, $remainingSeconds, $waiting);
+                return $this->watchUntilDeadline($taskId, $intervalSeconds, $deadline, $waiting);
             } catch (WaitingForAttention $exception) {
                 if (($this->clock)() >= $deadline) {
                     throw new RuntimeException('WATCH_TIMEOUT: Attention was not resolved within the configured waiting window.', 0, $exception);

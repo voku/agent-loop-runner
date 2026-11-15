@@ -102,6 +102,9 @@ in a **persistent foreground process**. This is an opt-in helper, not a browser
 timer, auto-approver, or new execution authority. It starts only if a stage-bound
 Attention is currently pending. It reads fresh Loop projections on a bounded
 interval and returns `WATCH_TIMEOUT` (exit 18) when the configured wait elapses.
+Reaching the 16-boundary bound returns `WATCH_LIMIT` with exit 16
+(`WAITING_FOR_ATTENTION`) so process managers can distinguish the open human
+Attention from an internal Runner failure.
 Stop it with the terminal/process manager; it has no independent background lifecycle.
 
 The watcher has one total monotonic timeout across all waits. It refuses a
