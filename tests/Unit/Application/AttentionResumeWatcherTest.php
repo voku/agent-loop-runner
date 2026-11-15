@@ -95,7 +95,7 @@ final class AttentionResumeWatcherTest extends TestCase
         self::assertSame([], $observations);
     }
 
-    public function testWatchAndResumeStopsAtTheFiniteAttentionBoundaryLimit(): void
+    public function testWatchAndResumeStopsAtSixteenTotalAttentionBoundaries(): void
     {
         $pending = self::projection('run-1', 1, self::attention('attention-0'));
         $resumeCalls = 0;
@@ -125,7 +125,7 @@ final class AttentionResumeWatcherTest extends TestCase
         } catch (RuntimeException $exception) {
             self::assertStringStartsWith('WATCH_LIMIT:', $exception->getMessage());
         }
-        self::assertSame(AttentionResumeWatcher::MAX_ATTENTION_BOUNDARIES, $resumeCalls);
+        self::assertSame(AttentionResumeWatcher::MAX_ATTENTION_BOUNDARIES - 1, $resumeCalls);
     }
 
     public function testOneSecondWatchStillObservesOwnerWhenFractionalTimeRemains(): void

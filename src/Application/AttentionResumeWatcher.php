@@ -151,7 +151,9 @@ final readonly class AttentionResumeWatcher
         }
 
         $deadline = ($this->clock)() + $maxWaitSeconds * 1_000_000_000;
-        $resumedBoundaries = 0;
+        // The already-pending Attention is boundary one, whether it was
+        // supplied by run/resume or freshly observed by watch().
+        $attentionBoundaries = 1;
         while (true) {
             if (($this->clock)() >= $deadline) {
                 throw new RuntimeException('WATCH_TIMEOUT: Attention was not resolved within the configured waiting window.');
@@ -163,7 +165,7 @@ final readonly class AttentionResumeWatcher
                 if (($this->clock)() >= $deadline) {
                     throw new RuntimeException('WATCH_TIMEOUT: Attention was not resolved within the configured waiting window.', 0, $exception);
                 }
-                if (++$resumedBoundaries >= self::MAX_ATTENTION_BOUNDARIES) {
+                if (++$attentionBoundaries >= self::MAX_ATTENTION_BOUNDARIES) {
                     throw new RuntimeException(
                         'WATCH_LIMIT: stopped after ' . self::MAX_ATTENTION_BOUNDARIES
                         . ' consecutive Attention boundaries; inspect current Loop state before starting another run.',
