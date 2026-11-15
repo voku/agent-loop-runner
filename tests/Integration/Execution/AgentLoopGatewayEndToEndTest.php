@@ -220,6 +220,62 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
         self::assertNull((new ExecutionGateway($this->root))->projection($taskId)->attention);
     }
 
+    public function testApprovedTaskContinuesThroughOneReviewRepairAndRereview(): void
+    {
+        $taskId = 'TASK-REVIEW-REPAIR';
+        ob_start();
+        try {
+            self::assertSame(0, (new WorkflowPlanCommand($this->root))->run([
+                $taskId, '--by', 'owner', '--file', 'src/Foo.php',
+                '--goal', 'Repair one in-scope independent review finding and re-review it.',
+                '--validation', 'php -l src/Foo.php',
+                '--base-commit', $this->base,
+            ]));
+            self::assertSame(0, (new WorkflowApproveCommand($this->root))->run([
+                $taskId,
+                '--revision', (string) (new TaskContractStore($this->root))->load($taskId)->revision,
+                '--by', 'owner',
+            ]));
+            self::assertSame(0, (new WorkflowExecutionProfileCommand($this->root))->run([
+                $taskId, '--profile', 'surgical', '--by', 'owner',
+            ]));
+        } finally {
+            ob_end_clean();
+        }
+
+        ob_start();
+        try {
+            $exit = (new HostFrontDoorCommand(
+                $this->root,
+                static function (CompileRequest $request) use ($taskId): CompileResult {
+                    mkdir($request->outputDirectory, 0o775, true);
+                    file_put_contents($request->outputDirectory . '/meta.json', json_encode([
+                        'schema_version' => '1.0',
+                        'task_id' => $taskId,
+                        'compilation_id' => 'review-repair-fixture',
+                        'selected_guidance' => [],
+                        'selected_constraints' => [],
+                        'output_hashes' => [],
+                    ], JSON_THROW_ON_ERROR));
+                    file_put_contents($request->outputDirectory . '/system.md', "# Recall\nRepair only approved scope.\n");
+
+                    return new CompileResult($request->outputDirectory, 'review-repair-fixture', str_repeat('a', 64));
+                },
+            ))->run('enter', [$taskId, '--format=json']);
+        } finally {
+            ob_end_clean();
+        }
+        self::assertSame(0, $exit);
+
+        $host = new ReviewRepairHost();
+        $projection = $this->coordinator($host)->run($taskId);
+
+        self::assertTrue($projection->complete());
+        self::assertSame(2, $host->builderExecutions, 'One approved repair should return to the builder without a separate Attention resolution.');
+        self::assertSame(2, $host->reviewerExecutions, 'The repaired candidate must receive a fresh independent review.');
+        self::assertNull((new ExecutionGateway($this->root))->projection($taskId)->attention);
+    }
+
     public function testRealCodexAdapterProducesFreshProcessContextEvidenceWithoutCredentials(): void
     {
         if (PHP_OS_FAMILY === 'Windows') {
@@ -640,6 +696,56 @@ final class AttentionTwiceHost implements HostAdapter
                 $startedAt,
                 '2026-01-01T00:01:00+00:00',
             ),
+        );
+    }
+}
+
+/** One reviewer finding is repaired and independently reviewed again within the approved Run. */
+final class ReviewRepairHost implements HostAdapter
+{
+    public int $builderExecutions = 0;
+    public int $reviewerExecutions = 0;
+
+    public function id(): string
+    {
+        return 'review-repair-fixture';
+    }
+
+    public function probe(ProcessSupervisor $processSupervisor, string $workingDirectory, array $environment): HostAvailability
+    {
+        return new HostAvailability($this->id(), $this->id(), '1', null);
+    }
+
+    public function execute(HostExecutionRequest $request, ProcessSupervisor $processSupervisor): HostExecutionResult
+    {
+        $references = [];
+        $outcome = 'completed';
+        if ($request->roleId === 'builder') {
+            ++$this->builderExecutions;
+            file_put_contents(
+                $request->workingDirectory . '/src/Foo.php',
+                $this->builderExecutions === 1
+                    ? "<?php\nfinal class Foo { public const string BUILT = 'initial'; }\n"
+                    : "<?php\nfinal class Foo { public const string BUILT = 'repaired'; }\n",
+            );
+            $references[] = 'src/Foo.php';
+        } elseif ($request->roleId === 'reviewer') {
+            ++$this->reviewerExecutions;
+            $references[] = 'src/Foo.php';
+            $outcome = $this->reviewerExecutions === 1 ? 'changes_required' : 'pass';
+        }
+
+        $startedAt = '2026-01-01T00:00:00+00:00';
+        $request->observer->started(80_000 + $this->builderExecutions + $this->reviewerExecutions, $startedAt);
+
+        return new HostExecutionResult(
+            $this->id(),
+            new ProcessResult(0, 'AGENT_LOOP_STAGE_RESULT ' . json_encode([
+                'outcome' => $outcome,
+                'summary' => $this->reviewerExecutions === 1 ? 'Fix the identified in-scope finding.' : 'Review complete.',
+                'artifact_references' => $references,
+                'validation_references' => [],
+            ], JSON_THROW_ON_ERROR) . "\n", '', false, $startedAt, '2026-01-01T00:01:00+00:00'),
         );
     }
 }
