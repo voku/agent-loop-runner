@@ -8,15 +8,18 @@ use Closure;
 use InvalidArgumentException;
 use RuntimeException;
 use voku\AgentLoop\Execution\ExecutionProjection;
+use voku\AgentLoopRunner\Execution\WaitingForAttention;
 
 /**
- * Opt-in foreground wait for one pending, Loop-owned Attention.
+ * Opt-in bounded foreground wait across Loop-owned Attention boundaries.
  *
  * Owner resolution is observed, never decided here. The resume callback must
- * validate the accepted projection UNDER Runner's per-task execution lock.
+ * validate each accepted projection UNDER Runner's per-task execution lock.
  */
 final readonly class AttentionResumeWatcher
 {
+    public const int MAX_ATTENTION_BOUNDARIES = 16;
+
     /** @var Closure(): int */
     private Closure $clock;
 
@@ -111,6 +114,53 @@ final readonly class AttentionResumeWatcher
             // Even after this poll, the Run can change before the lock is acquired.
             // Pass the accepted snapshot into the locked resume and re-check it there.
             return ($this->resume)($taskId, $current);
+        }
+    }
+
+    /**
+     * Keep one explicitly opted-in foreground run alive across multiple
+     * owner-authorized Attention boundaries, under one total deadline.
+     */
+    public function watchAndResume(
+        string $taskId,
+        int $intervalSeconds = 4,
+        int $maxWaitSeconds = 900,
+        ?ExecutionProjection $waiting = null,
+    ): ExecutionProjection {
+        if ($intervalSeconds < 1 || $intervalSeconds > 60 || $maxWaitSeconds < 1 || $maxWaitSeconds > 86400) {
+            throw new InvalidArgumentException('Watch interval must be 1..60 seconds and timeout must be 1..86400 seconds.');
+        }
+
+        $deadline = ($this->clock)() + $maxWaitSeconds * 1_000_000_000;
+        $resumedBoundaries = 0;
+        while (true) {
+            $remaining = $deadline - ($this->clock)();
+            if ($remaining < 1_000_000_000) {
+                throw new RuntimeException('WATCH_TIMEOUT: Attention was not resolved within the configured waiting window.');
+            }
+
+            // Floor the remainder so each inner wait remains within the one
+            // monotonic deadline instead of rounding a later boundary outward.
+            $remainingSeconds = min($maxWaitSeconds, intdiv($remaining, 1_000_000_000));
+            try {
+                return $this->watch($taskId, $intervalSeconds, $remainingSeconds, $waiting);
+            } catch (WaitingForAttention $exception) {
+                if (($this->clock)() >= $deadline) {
+                    throw new RuntimeException('WATCH_TIMEOUT: Attention was not resolved within the configured waiting window.', 0, $exception);
+                }
+                if (++$resumedBoundaries >= self::MAX_ATTENTION_BOUNDARIES) {
+                    throw new RuntimeException(
+                        'WATCH_LIMIT: stopped after ' . self::MAX_ATTENTION_BOUNDARIES
+                        . ' consecutive Attention boundaries; inspect current Loop state before starting another run.',
+                        0,
+                        $exception,
+                    );
+                }
+
+                // This snapshot comes from the locked expected-owner resume;
+                // the next watch immediately re-reads Loop and checks it again.
+                $waiting = $exception->projection;
+            }
         }
     }
 }

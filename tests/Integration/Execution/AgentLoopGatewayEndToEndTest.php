@@ -178,7 +178,7 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
         }
         self::assertSame(0, $exit);
 
-        $host = new AttentionOnceHost();
+        $host = new AttentionTwiceHost();
         $coordinator = $this->coordinator($host);
         $snapshot = null;
         try {
@@ -192,29 +192,30 @@ final class AgentLoopGatewayEndToEndTest extends TestCase
         self::assertSame('investigate', $snapshot->currentStageId);
         self::assertSame(1, $host->attentionRequests);
 
-        // Public human-owned workflow transition is present in the locked
-        // released agent-loop, not just in current main's newer service API.
-        ob_start();
-        try {
-            $resolutionExit = (new WorkflowAttentionCommand($this->root))->run([
-                $taskId, '--resolve', $snapshot->attention->id, '--by', 'independent-human',
-            ]);
-        } finally {
-            ob_end_clean();
-        }
-        self::assertSame(0, $resolutionExit);
-        self::assertNull((new ExecutionGateway($this->root))->projection($taskId)->attention);
-
+        $resolvedBoundaries = 0;
         $watcher = new AttentionResumeWatcher(
             fn (string $id): \voku\AgentLoop\Execution\ExecutionProjection => (new ExecutionGateway($this->root))->projection($id),
             static fn (string $id, \voku\AgentLoop\Execution\ExecutionProjection $accepted): \voku\AgentLoop\Execution\ExecutionProjection => $coordinator->resumeExpected($id, $accepted),
-            static function (int $seconds): void {
-                self::fail('Already resolved Attention must resume immediately, without sleeping.');
+            function (int $seconds) use ($taskId, $host, &$resolvedBoundaries): void {
+                $pending = (new ExecutionGateway($this->root))->projection($taskId);
+                self::assertNotNull($pending->attention, 'Runner must wait while Loop still owns Attention.');
+                self::assertSame($resolvedBoundaries + 1, $host->attentionRequests);
+                ob_start();
+                try {
+                    $resolutionExit = (new WorkflowAttentionCommand($this->root))->run([
+                        $taskId, '--resolve', $pending->attention->id, '--by', 'independent-human',
+                    ]);
+                } finally {
+                    ob_end_clean();
+                }
+                self::assertSame(0, $resolutionExit);
+                ++$resolvedBoundaries;
             },
         );
-        $done = $watcher->watch($taskId, 1, 30, $snapshot);
+        $done = $watcher->watchAndResume($taskId, 1, 30, $snapshot);
         self::assertTrue($done->complete());
-        self::assertSame(1, $host->attentionRequests);
+        self::assertSame(2, $host->attentionRequests);
+        self::assertSame(2, $resolvedBoundaries);
         self::assertGreaterThan(0, $host->normalExecutions());
         self::assertNull((new ExecutionGateway($this->root))->projection($taskId)->attention);
     }
@@ -586,10 +587,10 @@ final class OutcomeHost implements HostAdapter
 }
 
 /**
- * Deterministic fake provider: the very first investigator result requests a
- * real, user-resolvable Loop Attention; all later stages use OutcomeHost.
+ * Deterministic fake provider: the first two investigator results request
+ * real, user-resolvable Loop Attentions; later stages use OutcomeHost.
  */
-final class AttentionOnceHost implements HostAdapter
+final class AttentionTwiceHost implements HostAdapter
 {
     public int $attentionRequests = 0;
     private readonly OutcomeHost $delegate;
@@ -616,7 +617,7 @@ final class AttentionOnceHost implements HostAdapter
 
     public function execute(HostExecutionRequest $request, ProcessSupervisor $processSupervisor): HostExecutionResult
     {
-        if ($request->roleId !== 'investigator' || $this->attentionRequests !== 0) {
+        if ($request->roleId !== 'investigator' || $this->attentionRequests >= 2) {
             return $this->delegate->execute($request, $processSupervisor);
         }
 

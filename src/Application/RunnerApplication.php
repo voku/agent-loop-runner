@@ -164,7 +164,7 @@ final readonly class RunnerApplication
     }
 
     /**
-     * Explicitly opt in to a foreground wait for one current Attention.
+     * Explicitly opt in to bounded foreground waits for current Attention.
      * Approval still belongs to Loop, and execution still goes through Runner.
      *
      * @param list<string> $options
@@ -186,7 +186,7 @@ final readonly class RunnerApplication
             },
         );
 
-        $projection = $watcher->watch(
+        $projection = $watcher->watchAndResume(
             $taskId,
             $parsed['interval-seconds'] ?? 4,
             $parsed['timeout-seconds'] ?? 900,

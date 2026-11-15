@@ -93,7 +93,9 @@ Process exit status never implies acceptance; only Loop accepts a stage result.
 
 An operator can start `agent-loop-runner run TASK --watch` or
 `agent-loop-runner resume TASK --watch` to keep the same foreground command
-alive after its first `WAITING_FOR_ATTENTION` exit boundary. Alternatively,
+alive after its first `WAITING_FOR_ATTENTION` exit boundary. The command can
+continue through up to 16 consecutive Attention boundaries in the same Task,
+Run, Contract, and execution plan. Alternatively,
 a process manager that encounters an already-open Attention may run
 `agent-loop-runner watch TASK --interval-seconds=4 --timeout-seconds=900`
 in a **persistent foreground process**. This is an opt-in helper, not a browser
@@ -102,19 +104,21 @@ Attention is currently pending. It reads fresh Loop projections on a bounded
 interval and returns `WATCH_TIMEOUT` (exit 18) when the configured wait elapses.
 Stop it with the terminal/process manager; it has no independent background lifecycle.
 
-The watcher refuses a changed Task/Run/Contract/plan/candidate, a different
-Attention ID, and a cleared Attention without an observable stage/attempt change.
-A normal resolution advances the attempt; review-change resolution may route to
-another stage. `run --watch` and `resume --watch` preserve the exact pending
-Loop projection from Runner's locked interruption, including an Attention
-that was resolved immediately before watcher handoff. The watcher uses
-monotonic elapsed time for the entire wait (including reads) and **never**
-resumes after the configured deadline. Once Loop exposes an authorized new
-stage, it passes the accepted projection to Runner's **locked expected-owner
-resume**, which rejects any changed Run, Contract, plan, stage, attempt or
-candidate before preparation or provider invocation. Concurrent callers remain
-protected by Runner's per-task lock. If another actor completed the Run, no
-provider is started.
+The watcher has one total monotonic timeout across all waits. It refuses a
+changed Task/Run/Contract/plan/candidate, a different Attention ID, and a
+cleared Attention without an observable stage/attempt change. A normal
+resolution advances the attempt; review-change resolution may route to another
+stage. `run --watch` and `resume --watch` preserve the exact pending Loop
+projection from Runner's locked interruption, including an Attention that was
+resolved immediately before watcher handoff. The watcher **never** resumes
+after the configured deadline. Once Loop exposes an authorized new stage, it
+passes the accepted projection to Runner's **locked expected-owner resume**,
+which rejects any changed Run, Contract, plan, stage, attempt or candidate
+before preparation or provider invocation. If that stage raises another
+Attention, the watcher starts the next bounded wait using the same deadline.
+After 16 boundaries it stops with `WATCH_LIMIT` rather than running forever.
+Concurrent callers remain protected by Runner's per-task lock. If another actor
+completed the Run, no provider is started.
 Unreadable projections or stale evidence fail closed rather than being treated as
 approval. Multiple overlapping foreground watchers are unnecessary; use one
 supervised watcher per task.
