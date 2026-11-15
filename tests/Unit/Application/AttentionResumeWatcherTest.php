@@ -11,6 +11,7 @@ use voku\AgentLoop\Execution\AttentionRequest;
 use voku\AgentLoop\Execution\ExecutionProfileName;
 use voku\AgentLoop\Execution\ExecutionProjection;
 use voku\AgentLoopRunner\Application\AttentionResumeWatcher;
+use voku\AgentLoopRunner\Execution\WaitingForAttention;
 
 final class AttentionResumeWatcherTest extends TestCase
 {
@@ -43,6 +44,154 @@ final class AttentionResumeWatcherTest extends TestCase
         self::assertSame($resolved, $watcher->watch('TASK-1', 2, 10));
         self::assertSame(1, $resumeCalls);
         self::assertSame([2, 2], $delays);
+    }
+
+    public function testWatchAndResumeContinuesAcrossTwoFreshAttentionBoundaries(): void
+    {
+        $first = self::projection('run-1', 1, self::attention('attention-1'));
+        $firstResolved = self::projection('run-1', 2);
+        $secondAttention = new AttentionRequest(
+            'attention-2', 'TASK-1', 'run-1', AttentionKind::APPROVAL_REQUIRED,
+            'Approval required', 'review', '2026-11-11T12:01:00Z',
+        );
+        $second = new ExecutionProjection(
+            'TASK-1', 'run-1', 1, ExecutionProfileName::SURGICAL,
+            'sha256:plan', 'review', 1, $secondAttention, [], 'candidate',
+        );
+        $secondResolved = new ExecutionProjection(
+            'TASK-1', 'run-1', 1, ExecutionProfileName::SURGICAL,
+            'sha256:plan', 'verify', 2, null, [], 'candidate',
+        );
+        $complete = new ExecutionProjection(
+            'TASK-1', 'run-1', 1, ExecutionProfileName::SURGICAL,
+            'sha256:plan', null, 3, null, [], 'candidate',
+        );
+        $observations = [$firstResolved, $secondResolved];
+        $resumeCalls = 0;
+        $watcher = new AttentionResumeWatcher(
+            static function (string $taskId) use (&$observations): ExecutionProjection {
+                self::assertSame('TASK-1', $taskId);
+
+                return array_shift($observations) ?? throw new RuntimeException('Unexpected owner projection.');
+            },
+            static function (string $taskId, ExecutionProjection $accepted) use (&$resumeCalls, $firstResolved, $second, $secondResolved, $complete): ExecutionProjection {
+                ++$resumeCalls;
+                if ($resumeCalls === 1) {
+                    self::assertSame($firstResolved, $accepted);
+                    throw new WaitingForAttention($second);
+                }
+                self::assertSame(2, $resumeCalls);
+                self::assertSame($secondResolved, $accepted);
+
+                return $complete;
+            },
+            static function (int $seconds): void {
+                self::fail('Resolved owner transitions must be observed without sleeping.');
+            },
+        );
+
+        self::assertSame($complete, $watcher->watchAndResume('TASK-1', 1, 30, $first));
+        self::assertSame(2, $resumeCalls);
+        self::assertSame([], $observations);
+    }
+
+    public function testWatchAndResumeStopsAtSixteenTotalAttentionBoundaries(): void
+    {
+        $pending = self::projection('run-1', 1, self::attention('attention-0'));
+        $resumeCalls = 0;
+        $watcher = new AttentionResumeWatcher(
+            static function (string $taskId) use (&$resumeCalls): ExecutionProjection {
+                return self::projection('run-1', $resumeCalls + 2);
+            },
+            static function (string $taskId, ExecutionProjection $accepted) use (&$resumeCalls): ExecutionProjection {
+                ++$resumeCalls;
+                $attention = new AttentionRequest(
+                    'attention-' . $resumeCalls, 'TASK-1', 'run-1', AttentionKind::APPROVAL_REQUIRED,
+                    'Approval required', 'build', '2026-11-11T12:00:00Z',
+                );
+
+                throw new WaitingForAttention(new ExecutionProjection(
+                    'TASK-1', 'run-1', 1, ExecutionProfileName::SURGICAL,
+                    'sha256:plan', 'build', $resumeCalls + 1, $attention, [], 'candidate',
+                ));
+            },
+            static function (int $seconds): void {
+            },
+        );
+
+        try {
+            $watcher->watchAndResume('TASK-1', 1, 900, $pending);
+            self::fail('Expected the finite Attention boundary limit.');
+        } catch (RuntimeException $exception) {
+            self::assertStringStartsWith('WATCH_LIMIT:', $exception->getMessage());
+        }
+        self::assertSame(AttentionResumeWatcher::MAX_ATTENTION_BOUNDARIES - 1, $resumeCalls);
+    }
+
+    public function testOneSecondWatchStillObservesOwnerWhenFractionalTimeRemains(): void
+    {
+        $waiting = self::projection('run-1', 1, self::attention());
+        $resolved = self::projection('run-1', 2);
+        $clockValues = [0, 600_000_000, 700_000_000, 800_000_000, 900_000_000];
+        $observeCalls = 0;
+        $resumeCalls = 0;
+        $watcher = new AttentionResumeWatcher(
+            static function (string $taskId) use (&$observeCalls, $resolved): ExecutionProjection {
+                ++$observeCalls;
+
+                return $resolved;
+            },
+            static function (string $taskId, ExecutionProjection $accepted) use (&$resumeCalls, $resolved): ExecutionProjection {
+                self::assertSame($resolved, $accepted);
+                ++$resumeCalls;
+
+                return $resolved;
+            },
+            static function (int $seconds): void {
+                self::fail('A just-resolved owner projection must not sleep.');
+            },
+            static function () use (&$clockValues): int {
+                return array_shift($clockValues) ?? throw new RuntimeException('Unexpected clock read.');
+            },
+        );
+
+        self::assertSame($resolved, $watcher->watchAndResume('TASK-1', 1, 1, $waiting));
+        self::assertSame(1, $observeCalls);
+        self::assertSame(1, $resumeCalls);
+    }
+
+    public function testAllAttentionBoundariesShareOneAbsoluteDeadline(): void
+    {
+        $waiting = self::projection('run-1', 1, self::attention());
+        $resolved = self::projection('run-1', 2);
+        $clockValues = [0, 100_000_000, 2_000_000_000, 10_500_000_000];
+        $resumeCalls = 0;
+        $watcher = new AttentionResumeWatcher(
+            static function (string $taskId) use (&$clockValues, $resolved): ExecutionProjection {
+                $clockValues = [10_500_000_000];
+
+                return $resolved;
+            },
+            static function (string $taskId, ExecutionProjection $accepted) use (&$resumeCalls): ExecutionProjection {
+                ++$resumeCalls;
+
+                return $accepted;
+            },
+            static function (int $seconds): void {
+            },
+            static function () use (&$clockValues): int {
+                return array_shift($clockValues) ?? throw new RuntimeException('Unexpected clock read.');
+            },
+        );
+
+        try {
+            $watcher->watchAndResume('TASK-1', 1, 10, $waiting);
+            self::fail('An owner resolution after the original deadline must not resume.');
+        } catch (RuntimeException $exception) {
+            self::assertStringStartsWith('WATCH_TIMEOUT:', $exception->getMessage());
+        }
+
+        self::assertSame(0, $resumeCalls);
     }
 
     public function testReviewChangesMayResumeInDifferentAuthorizedStage(): void

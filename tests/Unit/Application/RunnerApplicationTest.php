@@ -44,4 +44,15 @@ final class RunnerApplicationTest extends TestCase
             (new RunnerApplication(__DIR__))->run(['resume', 'TASK-1', '--watch', '--watch']),
         );
     }
+
+    public function testWatchLimitUsesTheExistingWaitingForAttentionExitCode(): void
+    {
+        $application = new RunnerApplication(__DIR__);
+        $failureCode = new \ReflectionMethod($application, 'failureCode');
+
+        self::assertSame(
+            ExitCode::WAITING_FOR_ATTENTION,
+            $failureCode->invoke($application, 'WATCH_LIMIT: stopped at the finite boundary limit.'),
+        );
+    }
 }
