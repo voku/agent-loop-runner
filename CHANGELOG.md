@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-11-18
+
+### Added
+
+- `RunnerControlService::observedAttempt(string $taskId): ?RuntimeAttempt`: read-only access to the persisted Runner journal observation for a task. It never asks Loop to prepare ExecutionPlan/ExecutionState and grants no run, resume or cancel authority. It gives no freshness guarantee against current Loop authority, so consumers must compare run id, Contract revision and plan digest before showing it as current (#94).
+- The opt-in foreground `--watch` flow now continues across repeated Loop-owned Attention boundaries, re-reading Loop projections and using one absolute deadline, and stops with `WAITING_FOR_ATTENTION` after 16 boundaries (#97).
+
+### Fixed
+
+- A Runner journal observation recorded for a different task is rejected as corrupt instead of being returned (#94).
+
+### Dependencies
+
+- Lock the released `voku/agent-loop` 0.20.96 stack and PHPStan 2.3.6 / PHPUnit 12.5.44 tooling; the `^0.20.69` requirement is unchanged.
+
 ## [0.1.10] - 2026-11-10
 
 ### Fixed
