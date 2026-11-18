@@ -70,6 +70,18 @@ final readonly class RunnerControlService
         return new RunnerStatus($authority, $observation, $requiredHost);
     }
 
+    /**
+     * Read Runner's persisted process observation without consulting or
+     * preparing agent-loop execution authority. No journal is a valid absence;
+     * malformed journal data must throw so a UI can report unavailable status.
+     *
+     * This result is observational only and grants no run/resume/cancel action.
+     */
+    public function observedAttempt(string $taskId): ?RuntimeAttempt
+    {
+        return ($this->journal ?? new RuntimeJournal(new RunnerLayout($this->projectRoot)))->load($taskId);
+    }
+
     private function defaultPreflight(): RequiredHostPreflight
     {
         $config = $this->config ?? RunnerConfig::load($this->projectRoot);

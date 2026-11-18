@@ -17,7 +17,12 @@ final readonly class RuntimeJournal
 
     public function load(string $taskId): ?RuntimeAttempt
     {
-        return $this->readPath($this->layout->runtime($taskId));
+        $attempt = $this->readPath($this->layout->runtime($taskId));
+        if ($attempt !== null && $attempt->taskId !== $taskId) {
+            throw new CorruptRuntimeJournal('Runtime journal task identity does not match requested task.');
+        }
+
+        return $attempt;
     }
 
     public function save(RuntimeAttempt $attempt): void
