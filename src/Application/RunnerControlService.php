@@ -76,6 +76,16 @@ final readonly class RunnerControlService
      * malformed journal data must throw so a UI can report unavailable status.
      *
      * This result is observational only and grants no run/resume/cancel action.
+     *
+     * The journal carries no freshness guarantee: the attempt may belong to a
+     * retired Run, a superseded Contract revision or an older execution plan.
+     * Its runId, contractRevision and executionPlanDigest must match
+     * agent-loop's current governed Run, approved Contract revision and plan
+     * before it may be presented as belonging to current execution; to present
+     * it as the attempt agent-loop currently expects, also compare stageId and
+     * attempt with the current stage and attempt, i.e. all five fields that
+     * RuntimeAttempt::sameAuthority() checks. Treat an unprovable binding as
+     * unverified rather than current.
      */
     public function observedAttempt(string $taskId): ?RuntimeAttempt
     {
