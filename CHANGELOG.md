@@ -2,6 +2,20 @@
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-11-19
+
+### Changed
+
+- `RunnerControlService::observedAttempt()` documents its freshness contract: the journal attempt may belong to a retired Run, a superseded Contract revision or an older plan. Its run id, Contract revision and plan digest must match agent-loop's current execution before it is shown as current execution, and stage and attempt as well before it is shown as the attempt Loop currently expects (#102, #104).
+
+### Tests
+
+- Prove `observedAttempt()` leaves a fresh project byte-identical and creates no `.agent-loop-runner/` state, lock or temp file (#102, #104).
+
+### Dependencies
+
+- Lock the released `voku/agent-loop` 0.20.97 stack (#103); the `^0.20.69` requirement is unchanged.
+
 ## [0.1.11] - 2026-11-18
 
 ### Added
