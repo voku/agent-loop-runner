@@ -144,6 +144,18 @@ final class RunnerControlServiceStatusTest extends TestCase
         self::assertFileDoesNotExist((new ExecutionStateStore($this->root))->path('TASK-1'));
     }
 
+    public function testObservedAttemptLeavesFreshProjectUntouched(): void
+    {
+        $layout = new RunnerLayout($this->root);
+        self::assertDirectoryDoesNotExist($layout->root(), 'Precondition: fresh project without Runner state.');
+        $before = $this->projectFiles();
+
+        self::assertNull((new RunnerControlService($this->root))->observedAttempt('TASK-1'));
+
+        self::assertDirectoryDoesNotExist($layout->root(), 'Observation must not create Runner state, locks or temp files.');
+        self::assertSame($before, $this->projectFiles());
+    }
+
     public function testObservedAttemptRejectsCrossTaskJournalWithoutModifyingIt(): void
     {
         $layout = new RunnerLayout($this->root);
@@ -178,6 +190,30 @@ final class RunnerControlServiceStatusTest extends TestCase
             self::assertFileDoesNotExist((new ExecutionPlanStore($this->root))->path('TASK-1'));
             self::assertFileDoesNotExist((new ExecutionStateStore($this->root))->path('TASK-1'));
         }
+    }
+
+    /** @return array<string, string> relative path => content hash, excluding Git internals */
+    private function projectFiles(): array
+    {
+        $files = [];
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($this->root, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST,
+        );
+        foreach ($iterator as $info) {
+            self::assertInstanceOf(\SplFileInfo::class, $info);
+            $path = $info->getPathname();
+            $relative = substr($path, strlen($this->root) + 1);
+            if ($relative === '.git' || str_starts_with($relative, '.git/')) {
+                continue;
+            }
+            $hash = $info->isDir() ? 'dir' : hash_file('sha256', $path);
+            self::assertIsString($hash);
+            $files[$relative] = $hash;
+        }
+        ksort($files);
+
+        return $files;
     }
 
     /** @param list<string> $arguments */
