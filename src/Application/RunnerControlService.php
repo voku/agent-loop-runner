@@ -79,11 +79,13 @@ final readonly class RunnerControlService
      *
      * The journal carries no freshness guarantee: the attempt may belong to a
      * retired Run, a superseded Contract revision or an older execution plan.
-     * Before presenting it as current execution, compare its runId,
-     * contractRevision and executionPlanDigest with agent-loop's current
-     * execution identity (the binding fields RuntimeAttempt::sameAuthority()
-     * also checks), and treat an unprovable binding as unverified rather
-     * than current.
+     * Its runId, contractRevision and executionPlanDigest must match
+     * agent-loop's current governed Run, approved Contract revision and plan
+     * before it may be presented as belonging to current execution; to present
+     * it as the attempt agent-loop currently expects, also compare stageId and
+     * attempt with the current stage and attempt, i.e. all five fields that
+     * RuntimeAttempt::sameAuthority() checks. Treat an unprovable binding as
+     * unverified rather than current.
      */
     public function observedAttempt(string $taskId): ?RuntimeAttempt
     {
